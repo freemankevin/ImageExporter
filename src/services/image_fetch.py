@@ -1,43 +1,24 @@
-from src.api import docker_hub as api
-from config import CONFIG, COMPONENTS
-from src.utils import version_utils  # 从 utils 导入 version_utils
+import subprocess
+from utils.config import Config
+from utils.logger import Logger
 
-def get_latest_ik_plugin(verbose=True, print_title=True):
-    """获取IK插件的最新版本并打印结果"""
-    if verbose and print_title:
-        print("\n>>>>>>>>>>>> 获取最新Ik插件版本 <<<<<<<<<<<<")
-    latest_ik_version = api.get_latest_ik_version()
-    if latest_ik_version:
-        if verbose:
-            print(latest_ik_version)
-    else:
-        if verbose:
-            print("无法获取IK插件版本")
-    return latest_ik_version
+class ImageFetcher:
+    def __init__(self):
+        self.config = Config()
+        self.logger = Logger().get_logger()
 
-def fetch_latest_images(verbose=True, print_title=True):
-    """获取最新的镜像列表"""
-    if verbose and print_title:
-        print("\n>>>>>>>>>>>> 获取最新镜像列表 <<<<<<<<<<<<")
-    versions = {}
-    latest_ik_version = api.get_latest_ik_version()
-    for component, filter_func in COMPONENTS.items():
-        latest_versions, status = api.get_latest_versions(component, filter_func)
-        if component == "docker.io/library/elasticsearch":
-            versions[component] = handle_elasticsearch_version(latest_versions, latest_ik_version)
+    def fetch_image(self, repository, tag):
+        command = f"docker pull {repository}:{tag}"
+        result = subprocess.run(command, shell=True, capture_output=True)
+        if result.returncode == 0:
+            self.logger.info(f"Successfully fetched {repository}:{tag}")
         else:
-            versions[component] = latest_versions[0] if latest_versions else status
-        if verbose and latest_versions:
-            print(f"{component}:{latest_versions[0]}")
-        elif verbose:
-            print(f"{component}: {status}")
-    return versions
+            self.logger.error(f"Failed to fetch {repository}:{tag}")
 
-def handle_elasticsearch_version(latest_versions, latest_ik_version):
-    """处理Elasticsearch版本与IK插件版本的关系"""
-    if latest_versions:
-        latest_elasticsearch_version = latest_versions[0]
-        if latest_ik_version and version_utils.version_key(latest_ik_version) < version_utils.version_key(latest_elasticsearch_version):
-            return latest_ik_version
-        return latest_elasticsearch_version
-    return "No versions found"
+    def export_image(self, repository, tag, output_dir):
+        command = f"docker save -o {output_dir}/{repository.replace('/', '_')}_{tag}.tar {repository}:{tag}"
+        result = subprocess.run(command, shell=True, capture_output=True)
+        if result.returncode == 0:
+            self.logger.info(f"Successfully exported {repository}:{tag} to {output_dir}")
+        else:
+            self.logger.error(f"Failed to export {repository}:{tag}")
