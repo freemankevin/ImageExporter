@@ -1,0 +1,7 @@
+docker_hub_api_url: "https://hub.docker.com/v2"
+timeout: 300
+max_retries: 3
+retry_delay: 2
+log_level: "INFO"
+output_dir: "output"
+concurrent_downloads: 2
