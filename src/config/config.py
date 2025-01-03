@@ -10,7 +10,11 @@ class DockerHubAPI:
 
     def get_latest_version(self, repository, tag_pattern):
         """获取符合指定模式的最新版本"""
-        url = f"{self.base_url}/repositories/{repository}/tags"
+        if repository.startswith('library/'):
+            url = f"https://registry.hub.docker.com/v2/repositories/{repository}/tags?page_size=100"
+        else:
+            url = f"{self.base_url}/repositories/{repository}/tags"
+            
         response = requests.get(url)
         if response.status_code == 200:
             data = response.json()
@@ -101,7 +105,7 @@ class Config:
             'nginx': {
                 'name': 'nginx',
                 'image': 'docker.io/library/nginx',
-                'tag_pattern': r'^\d+\.\d+\.\d+$',
+                'tag_pattern': r'^[0-9]+\.[0-9]+\.[0-9]+$',
                 'latest_version': None
             },
             'rabbitmq': {
