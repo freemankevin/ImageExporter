@@ -22,8 +22,8 @@ wheels/
 *.egg
 
 # Project specific
-/logs/*
-/data/images/*
+/logs/
+/data/images/
 /data/versions/*
 state.json
 

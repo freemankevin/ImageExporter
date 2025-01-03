@@ -1,5 +1,7 @@
 # 开发指南
 
+[English](DEVELOPMENT_EN.md) | 简体中文
+
 ## 目录结构说明
 
 - `data/`：数据目录
