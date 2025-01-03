@@ -1,3 +1,3 @@
-from .image_update import ImageUpdateService
+from .image_manager import ImageManager
 
-__all__ = ['ImageUpdateService']
+__all__ = ['ImageManager']

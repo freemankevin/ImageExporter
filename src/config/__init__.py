@@ -1,1 +1,3 @@
-# 空文件或只包含必要的导入 
+from .config import CONFIG, InfiniLabsAPI
+
+__all__ = ['CONFIG', 'InfiniLabsAPI']

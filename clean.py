@@ -4,9 +4,12 @@ import shutil
 from pathlib import Path
 import argparse
 from datetime import datetime
-from src.utils.logger import logger
-
-PROJECT_ROOT = Path(__file__).parent
+from src import (
+    logger,
+    PROJECT_ROOT,
+    OUTPUT_DIR,
+    VERSIONS_DIR
+)
 
 class Cleaner:
     def __init__(self):
@@ -44,9 +47,8 @@ class Cleaner:
     def clean_output(self):
         """清理输出目录"""
         try:
-            output_dir = os.path.join(self.project_root, "data", "output")
-            self._remove_directory(output_dir, "输出目录")
-            os.makedirs(output_dir)
+            self._remove_directory(OUTPUT_DIR, "输出目录")
+            os.makedirs(OUTPUT_DIR)
             logger.info("已清空输出目录: data/output")
         except Exception as e:
             logger.error(f"清理输出目录时出错: {str(e)}")
@@ -54,12 +56,11 @@ class Cleaner:
     def clean_versions(self):
         """清理版本文件"""
         try:
-            versions_dir = os.path.join(self.project_root, "data", "versions")
-            if not os.path.exists(versions_dir):
+            if not os.path.exists(VERSIONS_DIR):
                 return
 
             today = datetime.now().strftime("%Y%m%d")
-            today_files = [os.path.join(versions_dir, file) for file in os.listdir(versions_dir)
+            today_files = [os.path.join(VERSIONS_DIR, file) for file in os.listdir(VERSIONS_DIR)
                            if file.startswith(("latest-", "update-")) and file.split("-")[1].split(".")[0] == today]
 
             if not today_files:
@@ -69,7 +70,7 @@ class Cleaner:
             for file_path in today_files:
                 self._remove_file(file_path, "今天的版本文件")
 
-            history_files = [f for f in os.listdir(versions_dir)
+            history_files = [f for f in os.listdir(VERSIONS_DIR)
                              if f.startswith(("latest-", "update-")) and f.split("-")[1].split(".")[0] != today]
 
             if history_files:
