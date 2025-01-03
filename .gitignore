@@ -22,9 +22,9 @@ wheels/
 *.egg
 
 # Project specific
-/logs/
-/data/images/
-/data/versions/
+/logs/*
+/data/images/*
+/data/versions/*
 state.json
 
 # IDE

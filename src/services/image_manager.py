@@ -265,7 +265,18 @@ class ImageManager:
         
         # 显示最新版本文件
         latest_file = f"latest-{self.today}.txt"
-        console.print(f"\n[bold cyan]新的版本信息将保存至:[/bold cyan] {latest_file}\n")
+        console.print(f"\n[bold cyan]最新版本文件保存至:[/bold cyan] {latest_file}")
+        
+        # 只有在有需要更新的组件时才生成更新列表文件
+        if updates_needed:
+            update_file = f"update-{self.today}.txt"
+            update_file_path = get_version_file_path(update_file)
+            with open(update_file_path, 'w') as f:
+                for component in updates_needed.values():
+                    f.write(f"{component['image']}:{component['latest_version']}\n")
+            console.print(f"[bold cyan]需要更新的镜像列表保存至:[/bold cyan] {update_file}\n")
+        else:
+            console.print("\n[bold green]所有组件均为最新版本[/bold green]\n")
         
         return updates_needed
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import shutil
+from pathlib import Path
 import argparse
 from datetime import datetime
 from src.utils.docker_utils import (
@@ -32,7 +33,7 @@ class Cleaner:
                     if dir_name == "__pycache__":
                         self._remove_directory(os.path.join(root, dir_name), "缓存目录")
             for pyc_file in Path('.').rglob("*.pyc"):
-                self._remove_file(pyc_file, "缓存文件")
+                self._remove_file(str(pyc_file), "缓存文件")
         except Exception as e:
             logger.error(f"清理 Python 缓存时出错: {str(e)}")
 
