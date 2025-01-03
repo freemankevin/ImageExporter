@@ -33,12 +33,14 @@ def setup_logger():
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
+    # 文件日志
     file_handler = logging.FileHandler(log_file, encoding='utf-8')
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     ))
     
+    # 控制台日志
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter('%(message)s'))

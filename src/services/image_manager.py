@@ -64,7 +64,7 @@ class ImageManager:
             # 使用进度动画获取最新版本
             with Progress(
                 SpinnerColumn(),
-                TimeElapsedColumn(),
+                TextColumn(" "),
                 console=console
             ) as progress:
                 task = progress.add_task("", total=None)
@@ -93,14 +93,13 @@ class ImageManager:
         try:
             with Progress(
                 SpinnerColumn(),
-                TimeElapsedColumn(),
+                TextColumn(" "),
                 console=console
             ) as progress:
                 overall_task = progress.add_task(
                     "", 
                     total=len(updates_needed) * 2
                 )
-                console.print()  # 添加换行
                 
                 with ThreadPoolExecutor(max_workers=CONFIG.get("concurrent_downloads", 2)) as executor:
                     futures = []
@@ -133,8 +132,6 @@ class ImageManager:
                     for future in futures:
                         future.result()
                         
-                console.print()  # 添加换行
-                    
         except Exception as e:
             console.print(f"\n[bold red]拉取和导出镜像时出错: {str(e)}[/bold red]\n")
             raise
@@ -144,19 +141,15 @@ class ImageManager:
         try:
             # 拉取镜像
             progress.update(overall_task, description="")
-            console.print()  # 添加换行
             
             if pull_image(None, full_image_name, arch):
                 progress.advance(overall_task, 0.5)
-                console.print()  # 添加换行
             
             # 导出镜像
             progress.update(overall_task, description="")
-            console.print()  # 添加换行
             
             export_image(full_image_name, image_path, arch)
             progress.advance(overall_task, 0.5)
-            console.print()  # 添加换行
             
         except Exception as e:
             console.print(f"\n[bold red][{arch}] 处理镜像失败:[/bold red] {full_image_name}, {str(e)}\n")
@@ -271,7 +264,7 @@ class ImageManager:
         
         # 如果有需要更新的组件，执行拉取和导出操作
         if updates_needed:
-            console.print("\n[bold cyan]════════ 开始处理需要更新的镜像 ════════[/bold cyan]")
+            console.print("\n[bold cyan]════════ 开始处理需要更新的镜像 ════════[/bold cyan]\n")
             self.pull_and_export_images(updates_needed)
             console.print("\n[bold green]所有更新任务已完成[/bold green]")
         else:
