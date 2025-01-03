@@ -28,8 +28,6 @@ def main():
         for name, component in components.items():
             console.print(f"  • {component['name']} ({component['image']})")
         
-        console.print("\n[bold green]开始执行更新检查...[/bold green]")
-        
         # 执行主要逻辑
         manager.run()
         

@@ -54,6 +54,8 @@ class ImageManager:
     def compare_and_update(self, components):
         """比较版本并输出需要更新的镜像"""
         try:
+            console.print("\n[bold cyan]════════ 开始执行更新检查 ════════[/bold cyan]\n")
+            
             # 获取历史版本文件
             history_versions = self._get_latest_history_file()
             if not history_versions:
@@ -62,21 +64,17 @@ class ImageManager:
             # 使用进度动画获取最新版本
             with Progress(
                 SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
                 TimeElapsedColumn(),
                 console=console
             ) as progress:
-                task = progress.add_task("[cyan]正在获取最新版本信息...", total=None)
+                task = progress.add_task("", total=None)
                 
                 # 获取最新版本
                 for name, component in components.items():
-                    progress.update(task, description=f"[cyan]正在检查 {component['name']} 的最新版本...")
                     latest_version = CONFIG.get_latest_version(name)
                     component['latest_version'] = latest_version
                 
-                progress.update(task, description="[green]版本信息获取完成!")
-            
-            console.print()  # 添加换行
+                progress.update(task, description="")
             
             # 保存最新版本列表
             self._save_latest_versions(components)
@@ -95,12 +93,11 @@ class ImageManager:
         try:
             with Progress(
                 SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
                 TimeElapsedColumn(),
                 console=console
             ) as progress:
                 overall_task = progress.add_task(
-                    "[cyan]处理镜像更新...", 
+                    "", 
                     total=len(updates_needed) * 2
                 )
                 console.print()  # 添加换行
@@ -146,7 +143,7 @@ class ImageManager:
         """处理单个镜像的拉取和导出"""
         try:
             # 拉取镜像
-            progress.update(overall_task, description=f"[yellow][{arch}] 正在拉取: {full_image_name}")
+            progress.update(overall_task, description="")
             console.print()  # 添加换行
             
             if pull_image(None, full_image_name, arch):
@@ -154,7 +151,7 @@ class ImageManager:
                 console.print()  # 添加换行
             
             # 导出镜像
-            progress.update(overall_task, description=f"[green][{arch}] 正在导出: {os.path.relpath(image_path)}")
+            progress.update(overall_task, description="")
             console.print()  # 添加换行
             
             export_image(full_image_name, image_path, arch)
@@ -194,7 +191,7 @@ class ImageManager:
         
         # 显示使用的版本文件
         if history_versions:
-            console.print(f"\n[bold cyan]使用历史版本文件:[/bold cyan] {os.path.basename(history_versions)}")
+            console.print(f"\n[bold cyan]使用历史版本文件:[/bold cyan] {os.path.basename(history_versions)}\n")
         
         # 创建表格，设置标题为粗体但不倾斜
         table = Table(
@@ -263,8 +260,6 @@ class ImageManager:
 
     def run(self):
         """执行主要业务逻辑"""
-        console.print("\n[bold blue]开始检查组件版本更新...[/bold blue]\n")
-        
         # 获取组件配置
         components = CONFIG.get("components")
         if not components:
@@ -276,7 +271,7 @@ class ImageManager:
         
         # 如果有需要更新的组件，执行拉取和导出操作
         if updates_needed:
-            console.print("\n[bold blue]开始处理需要更新的镜像...[/bold blue]")
+            console.print("\n[bold cyan]════════ 开始处理需要更新的镜像 ════════[/bold cyan]")
             self.pull_and_export_images(updates_needed)
             console.print("\n[bold green]所有更新任务已完成[/bold green]")
         else:
