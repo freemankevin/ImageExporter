@@ -133,7 +133,7 @@ ImageExporter/
 │   └── ...
 ├── data/
 │   ├── versions/     # 版本文件目录
-│   └── output/       # 输出目录
+│   └── images/       # 镜像文件目录
 ├── logs/             # 日志目录
 ├── clean.py          # 清理工具
 ├── main.py

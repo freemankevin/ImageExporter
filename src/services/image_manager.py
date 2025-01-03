@@ -307,21 +307,56 @@ class ImageManager:
 
     def run(self):
         """执行主要业务逻辑"""
-        # 获取组件配置
-        components = CONFIG.get("components")
-        if not components:
-            console.print("[bold red]未找到组件配置[/bold red]")
-            return
+        try:
+            # 获取组件配置
+            components = CONFIG.get("components")
+            if not components:
+                console.print("[bold red]未找到组件配置[/bold red]")
+                return
 
-        # 比较版本并获取需要更新的组件
-        updates_needed = self.compare_and_update(components)
-        
-        # 如果有需要更新的组件，执行拉取和导出操作
-        if updates_needed:
-            self.task_count += 1
-            console.print(f"\n[bold cyan]Task {self.task_count}. 处理更新镜像[/bold cyan]")
-            console.print("=" * 50)
-            self.pull_and_export_images(updates_needed)
-            console.print("\n[bold green]所有更新任务已完成[/bold green]")
-        else:
-            console.print("\n[bold green]没有需要更新的组件[/bold green]")
+            # 检查是否有未完成的任务
+            if self.state:
+                last_step = self.state.get('last_step')
+                if last_step == 'version_check':
+                    # 从状态文件恢复需要更新的组件列表
+                    updates_needed = self.state.get('updates_needed', {})
+                    console.print("\n[bold yellow]从上次中断处继续执行...[/bold yellow]")
+                    
+                    if updates_needed:
+                        self.task_count += 1
+                        console.print(f"\n[bold cyan]Task {self.task_count}. 处理更新镜像[/bold cyan]")
+                        console.print("=" * 50)
+                        self.pull_and_export_images(updates_needed)
+                        console.print("\n[bold green]所有更新任务已完成[/bold green]")
+                    return updates_needed
+                    
+                elif last_step == 'processing':
+                    # 从状态文件恢复处理进度
+                    current_state = self.state.get('current_component')
+                    remaining = self.state.get('remaining', [])
+                    updates_needed = {}
+                    
+                    console.print(f"\n[bold yellow]从组件 {current_state} 继续处理...[/bold yellow]")
+                    
+                    # 重建需要更新的组件列表
+                    for name in remaining:
+                        if name in components:
+                            updates_needed[name] = components[name]
+                    
+                    if updates_needed:
+                        self.task_count += 1
+                        console.print(f"\n[bold cyan]Task {self.task_count}. 处理更新镜像[/bold cyan]")
+                        console.print("=" * 50)
+                        self.pull_and_export_images(updates_needed)
+                        console.print("\n[bold green]所有更新任务已完成[/bold green]")
+                    return updates_needed
+
+            # 如果没有状态文件或状态无效，从头开始执行
+            return self.compare_and_update(components)
+            
+        except KeyboardInterrupt:
+            console.print("\n[bold red]操作被用户中断[/bold red]")
+            raise
+        except Exception as e:
+            console.print(f"\n[bold red]程序执行出错: {str(e)}[/bold red]")
+            raise
