@@ -82,6 +82,9 @@ class ImageManager:
             # 检查需要更新的组件
             updates_needed = self._check_updates(components, history_versions) if history_versions else components
             
+            # 保存当前状态
+            self.save_state('version_check', updates_needed)
+            
             return updates_needed
             
         except Exception as e:
@@ -104,6 +107,12 @@ class ImageManager:
                 with ThreadPoolExecutor(max_workers=CONFIG.get("concurrent_downloads", 2)) as executor:
                     futures = []
                     for name, component in updates_needed.items():
+                        # 更新状态为正在处理该组件
+                        self.save_state('processing', {
+                            'current_component': name,
+                            'remaining': list(updates_needed.keys())
+                        })
+                        
                         image_name = component['image']
                         version = component['latest_version']
                         if not version:
@@ -132,7 +141,15 @@ class ImageManager:
                     for future in futures:
                         future.result()
                         
+                    # 任务完成，清理状态文件
+                    self.clean_state()
+                        
         except Exception as e:
+            # 发生错误时保存状态
+            self.save_state('error', {
+                'error_message': str(e),
+                'updates_needed': updates_needed
+            })
             console.print(f"\n[bold red]拉取和导出镜像时出错: {str(e)}[/bold red]\n")
             raise
 

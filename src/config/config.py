@@ -29,7 +29,7 @@ class DockerHubAPI:
                 self.logger.error(f"No tags found for {repository}")
                 return None
         else:
-            self.logger.error(f"Failed to fetch latest version for {repository}: Status {response.status_code}")
+            logger.error(f"[bold red]Failed to fetch latest version for {repository}: Status {response.status_code}[/bold red]")
             return None
 
 class InfiniLabsAPI:
