@@ -54,7 +54,8 @@ class ImageManager:
     def compare_and_update(self, components):
         """比较版本并输出需要更新的镜像"""
         try:
-            console.print("\n[bold cyan]═════════════════ 开始执行更新检查 ═════════════════[/bold cyan]\n")
+            console.print("\n[bold cyan]执行更新检查[/bold cyan]")
+            console.print("=" * 50)
             
             # 获取历史版本文件
             history_versions = self._get_latest_history_file()
@@ -201,7 +202,7 @@ class ImageManager:
         
         # 显示使用的版本文件
         if history_versions:
-            console.print(f"\n[bold cyan]使用历史版本文件:[/bold cyan] {os.path.basename(history_versions)}\n")
+            console.print(f"[bold cyan]使用历史版本文件:[/bold cyan] {os.path.basename(history_versions)}")
         
         # 创建表格，设置标题为粗体但不倾斜
         table = Table(
@@ -212,7 +213,7 @@ class ImageManager:
             header_style="bold"
         )
         table.add_column("组件", style="bold")
-        table.add_column("当前版本", style="bold")
+        table.add_column("历史版本", style="bold")
         table.add_column("最新版本", style="bold")
         table.add_column("状态", style="bold")
         
@@ -281,7 +282,8 @@ class ImageManager:
         
         # 如果有需要更新的组件，执行拉取和导出操作
         if updates_needed:
-            console.print("\n[bold cyan]═══════════════ 开始处理需要更新的镜像 ══════════════[/bold cyan]\n")
+            console.print("\n[bold cyan]处理更新镜像[/bold cyan]")
+            console.print("=" * 50)
             self.pull_and_export_images(updates_needed)
             console.print("\n[bold green]所有更新任务已完成[/bold green]")
         else:
