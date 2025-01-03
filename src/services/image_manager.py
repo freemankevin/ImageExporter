@@ -60,7 +60,24 @@ class ImageManager:
             # 获取历史版本文件
             history_versions = self._get_latest_history_file()
             if not history_versions:
-                console.print("\n[bold yellow]未找到历史版本文件，将视为全新安装[/bold yellow]\n")
+                console.print("\n[bold yellow]未找到历史版本文件[/bold yellow]")
+                while True:
+                    choice = input("\n是否上传历史版本文件到 data/versions 目录? (y/n): ").lower().strip()
+                    if choice in ['y', 'n']:
+                        break
+                    console.print("[red]无效的输入，请输入 y 或 n[/red]")
+                
+                if choice == 'y':
+                    console.print(f"\n[bold cyan]请将历史版本文件上传至:[/bold cyan] {VERSIONS_DIR}")
+                    console.print("[dim]上传完成后按回车键继续...[/dim]")
+                    input()
+                    
+                    # 重新检查是否有历史版本文件
+                    history_versions = self._get_latest_history_file()
+                    if not history_versions:
+                        console.print("\n[bold yellow]未检测到上传的文件，将获取所有组件的最新版本[/bold yellow]")
+                else:
+                    console.print("\n[bold yellow]跳过上传，将获取所有组件的最新版本[/bold yellow]")
             
             # 使用进度动画获取最新版本
             with Progress(
