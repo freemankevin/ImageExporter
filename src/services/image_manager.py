@@ -11,7 +11,7 @@ from src.utils.docker_utils import (
     get_output_path,
     write_versions_to_file,
     VERSIONS_DIR,
-    OUTPUT_DIR,
+    IMAGES_DIR,
     pull_image,
     export_image
 )
@@ -24,6 +24,7 @@ class ImageManager:
         self.state_file = "state.json"
         self.today = datetime.now().strftime('%Y%m%d')
         self.state = self.load_state()
+        self.task_count = 0  # 添加任务计数器
 
     def load_state(self):
         """从状态文件中加载上次执行的状态"""
@@ -51,10 +52,17 @@ class ImageManager:
         if os.path.exists(self.state_file):
             os.remove(self.state_file)
 
+    def _print_task_title(self, title):
+        """打印带序号的任务标题"""
+        self.task_count += 1
+        console.print(f"\n[bold cyan]Task {self.task_count}. {title}[/bold cyan]")
+        console.print("=" * 50)
+
     def compare_and_update(self, components):
         """比较版本并输出需要更新的镜像"""
         try:
-            console.print("\n[bold cyan]执行更新检查[/bold cyan]")
+            self.task_count += 1
+            console.print(f"\n[bold cyan]Task {self.task_count}. 执行更新检查[/bold cyan]")
             console.print("=" * 50)
             
             # 获取历史版本文件
@@ -299,7 +307,8 @@ class ImageManager:
         
         # 如果有需要更新的组件，执行拉取和导出操作
         if updates_needed:
-            console.print("\n[bold cyan]处理更新镜像[/bold cyan]")
+            self.task_count += 1
+            console.print(f"\n[bold cyan]Task {self.task_count}. 处理更新镜像[/bold cyan]")
             console.print("=" * 50)
             self.pull_and_export_images(updates_needed)
             console.print("\n[bold green]所有更新任务已完成[/bold green]")

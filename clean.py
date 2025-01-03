@@ -1,38 +1,37 @@
 #!/usr/bin/env python3
 import os
 import shutil
-from pathlib import Path
 import argparse
 from datetime import datetime
-from src import (
+from src.utils.docker_utils import (
     logger,
-    PROJECT_ROOT,
-    OUTPUT_DIR,
-    VERSIONS_DIR
+    IMAGES_DIR,
+    VERSIONS_DIR,
+    LOGS_DIR
 )
 
 class Cleaner:
     def __init__(self):
-        self.project_root = PROJECT_ROOT
+        pass
 
     def _remove_directory(self, path, description):
         if os.path.exists(path):
             shutil.rmtree(path)
-            logger.info(f"已删除{description}: {os.path.relpath(path, self.project_root)}")
+            logger.info(f"已删除{description}: {path}")
 
     def _remove_file(self, path, description):
         if os.path.exists(path):
             os.remove(path)
-            logger.info(f"已删除{description}: {os.path.relpath(path, self.project_root)}")
+            logger.info(f"已删除{description}: {path}")
 
     def clean_pycache(self):
         """清理所有 Python 缓存文件"""
         try:
-            for root, dirs, _ in os.walk(self.project_root):
+            for root, dirs, _ in os.walk('.'):
                 for dir_name in dirs:
                     if dir_name == "__pycache__":
                         self._remove_directory(os.path.join(root, dir_name), "缓存目录")
-            for pyc_file in Path(self.project_root).rglob("*.pyc"):
+            for pyc_file in Path('.').rglob("*.pyc"):
                 self._remove_file(pyc_file, "缓存文件")
         except Exception as e:
             logger.error(f"清理 Python 缓存时出错: {str(e)}")
@@ -40,18 +39,15 @@ class Cleaner:
     def clean_state(self):
         """清理状态文件"""
         try:
-            self._remove_file(os.path.join(self.project_root, "state.json"), "状态文件")
+            self._remove_file("state.json", "状态文件")
         except Exception as e:
             logger.error(f"清理状态文件时出错: {str(e)}")
 
     def clean_output(self):
         """清理输出目录"""
-        try:
-            self._remove_directory(OUTPUT_DIR, "输出目录")
-            os.makedirs(OUTPUT_DIR)
-            logger.info("已清空输出目录: data/output")
-        except Exception as e:
-            logger.error(f"清理输出目录时出错: {str(e)}")
+        if os.path.exists(IMAGES_DIR):
+            shutil.rmtree(IMAGES_DIR)
+            logger.info(f"已清理镜像目录: {IMAGES_DIR}")
 
     def clean_versions(self):
         """清理版本文件"""
@@ -60,8 +56,12 @@ class Cleaner:
                 return
 
             today = datetime.now().strftime("%Y%m%d")
-            today_files = [os.path.join(VERSIONS_DIR, file) for file in os.listdir(VERSIONS_DIR)
-                           if file.startswith(("latest-", "update-")) and file.split("-")[1].split(".")[0] == today]
+            today_files = [
+                os.path.join(VERSIONS_DIR, file) 
+                for file in os.listdir(VERSIONS_DIR)
+                if file.startswith(("latest-", "update-")) 
+                and file.split("-")[1].split(".")[0] == today
+            ]
 
             if not today_files:
                 logger.info("没有找到今天的版本文件，无需清理")
@@ -70,8 +70,11 @@ class Cleaner:
             for file_path in today_files:
                 self._remove_file(file_path, "今天的版本文件")
 
-            history_files = [f for f in os.listdir(VERSIONS_DIR)
-                             if f.startswith(("latest-", "update-")) and f.split("-")[1].split(".")[0] != today]
+            history_files = [
+                f for f in os.listdir(VERSIONS_DIR)
+                if f.startswith(("latest-", "update-")) 
+                and f.split("-")[1].split(".")[0] != today
+            ]
 
             if history_files:
                 logger.info("\n保留的历史版本文件:")
@@ -84,14 +87,13 @@ class Cleaner:
     def clean_logs(self):
         """清理日志文件"""
         try:
-            logs_dir = os.path.join(self.project_root, "logs")
-            if os.path.exists(logs_dir):
+            if os.path.exists(LOGS_DIR):
                 success_count = 0
                 failed_files = []
 
-                for log_file in os.listdir(logs_dir):
+                for log_file in os.listdir(LOGS_DIR):
                     if log_file.endswith(".log"):
-                        log_path = os.path.join(logs_dir, log_file)
+                        log_path = os.path.join(LOGS_DIR, log_file)
                         try:
                             for handler in logger.handlers[:]:
                                 if hasattr(handler, 'baseFilename') and handler.baseFilename == log_path:
@@ -147,7 +149,7 @@ def main():
     
     parser.add_argument('-c', '--cache', action='store_true', help='清理 Python 缓存文件（__pycache__ 目录和 .pyc 文件）')
     parser.add_argument('-s', '--state', action='store_true', help='清理状态文件（state.json）')
-    parser.add_argument('-o', '--output', action='store_true', help='清理输出目录（data/output）')
+    parser.add_argument('-o', '--output', action='store_true', help='清理镜像目录（data/images）')
     parser.add_argument('-v', '--versions', action='store_true', help='清理今天的版本文件（保留历史版本用于比较）')
     parser.add_argument('-l', '--logs', action='store_true', help='清理日志文件（自动处理文件占用）')
     parser.add_argument('-a', '--all', action='store_true', help='清理所有内容（保留历史版本文件）')
@@ -171,7 +173,7 @@ def main():
                 logger.info("清理状态文件...")
                 cleaner.clean_state()
             if args.output:
-                logger.info("清理输出目录...")
+                logger.info("清理镜像目录...")
                 cleaner.clean_output()
             if args.versions:
                 logger.info("清理今天的版本文件...")

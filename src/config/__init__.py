@@ -1,3 +1,3 @@
-from .config import CONFIG, InfiniLabsAPI
+from .config import CONFIG, DockerHubAPI, InfiniLabsAPI
 
-__all__ = ['CONFIG', 'InfiniLabsAPI']
+__all__ = ['CONFIG', 'DockerHubAPI', 'InfiniLabsAPI']

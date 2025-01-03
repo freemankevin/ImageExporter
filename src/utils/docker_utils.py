@@ -14,7 +14,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 VERSIONS_DIR = os.path.join(DATA_DIR, "versions")
-OUTPUT_DIR = os.path.join(DATA_DIR, "output")
+IMAGES_DIR = os.path.join(DATA_DIR, "images")
 LOGS_DIR = os.path.join(PROJECT_ROOT, "logs")
 
 # 设置默认超时和重试参数
@@ -56,7 +56,7 @@ def ensure_dirs():
     """确保所有必要的目录都存在"""
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(VERSIONS_DIR, exist_ok=True)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(IMAGES_DIR, exist_ok=True)
     os.makedirs(LOGS_DIR, exist_ok=True)
 
 def get_version_file_path(filename=""):
@@ -68,7 +68,7 @@ def get_version_file_path(filename=""):
 
 def get_output_path(date_str, arch):
     """获取输出路径"""
-    output_path = os.path.join(OUTPUT_DIR, date_str, arch)
+    output_path = os.path.join(IMAGES_DIR, date_str, arch)
     os.makedirs(output_path, exist_ok=True)
     return output_path
 

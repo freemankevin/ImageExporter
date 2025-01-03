@@ -1,18 +1,41 @@
 # 开发指南
 
-## 环境设置
+## 目录结构说明
+
+- `data/`：数据目录
+  - `versions/`：存放版本信息文件
+  - `images/`：存放导出的镜像文件
+- `logs/`：日志文件目录
+- `src/`：源代码目录
+  - `config/`：配置相关代码
+  - `services/`：核心服务代码
+  - `utils/`：工具函数
+- `tests/`：测试代码目录
+
+## 开发环境设置
 
 1. 创建虚拟环境：
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate     # Windows
-```
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Linux/Mac
+   venv\Scripts\activate     # Windows
+   ```
 
-2. 安装开发依赖：
-```bash
-pip install -r requirements-dev.txt
-```
+2. 安装依赖：
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. 安装开发依赖：
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+## 目录说明
+
+- `data/versions/`：存放历史版本文件，格式为 `latest-YYYYMMDD.txt`
+- `data/images/`：存放导出的镜像文件，按日期和架构分类
+- `logs/`：存放运行日志，格式为 `image_exporter_YYYYMMDD.log`
 
 ## 开发工具
 
