@@ -13,7 +13,8 @@ def main():
         console.print(Panel.fit(
             "[bold blue]Docker 镜像自动更新工具[/bold blue]\n"
             "[dim]用于检查和导出最新版本的 Docker 镜像[/dim]",
-            border_style="blue"
+            border_style="blue",
+            width=60
         ))
         
         console.print("\n[bold cyan]任务开始[/bold cyan]")

@@ -54,7 +54,7 @@ class ImageManager:
     def compare_and_update(self, components):
         """比较版本并输出需要更新的镜像"""
         try:
-            console.print("\n[bold cyan]════════ 开始执行更新检查 ════════[/bold cyan]\n")
+            console.print("\n[bold cyan]═════════════════ 开始执行更新检查 ═════════════════[/bold cyan]\n")
             
             # 获取历史版本文件
             history_versions = self._get_latest_history_file()
@@ -264,7 +264,7 @@ class ImageManager:
         
         # 如果有需要更新的组件，执行拉取和导出操作
         if updates_needed:
-            console.print("\n[bold cyan]════════ 开始处理需要更新的镜像 ════════[/bold cyan]\n")
+            console.print("\n[bold cyan]═══════════════ 开始处理需要更新的镜像 ══════════════[/bold cyan]\n")
             self.pull_and_export_images(updates_needed)
             console.print("\n[bold green]所有更新任务已完成[/bold green]")
         else:
