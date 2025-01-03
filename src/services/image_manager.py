@@ -114,7 +114,7 @@ class ImageManager:
                         for arch in ['amd64', 'arm64']:
                             image_path = os.path.join(
                                 get_output_path(self.today, arch),
-                                f"{os.path.basename(image_name)}:{version}.tar.gz"
+                                f"{os.path.basename(image_name)}_{version}_{arch}.tar.gz"
                             )
                             
                             futures.append(
