@@ -55,4 +55,4 @@ python clean.py -v    # Clean today's version files
 
 ## License
 
-[Apache License 2.0](LICENSE) 
+[MIT License](LICENSE)
