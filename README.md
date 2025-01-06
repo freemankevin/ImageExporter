@@ -44,6 +44,16 @@ python clean.py -v    # 清理今天的版本文件
 - Docker
 - 详细依赖见 requirements.txt
 
+### 功能
+
+- 支持多架构 (AMD64/ARM64)
+- 自动版本比较
+- 并发下载
+- 恢复中断的操作
+- 详细日志记录
+- 灵活配置
+- 智能清理工具
+
 ### 许可证
 
 [MIT License](LICENSE)
