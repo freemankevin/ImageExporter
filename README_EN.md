@@ -1,49 +1,50 @@
-# Docker Image Auto-Update Tool
+## ImageExporter
 
 English | [简体中文](README.md)
 
-A tool for automatically checking, downloading and exporting the latest versions of Docker images.
+**ImageExporter** is an efficient tool designed specifically for offline installation and deployment scenarios. It can automatically check, download, and export the latest versions of Docker images, providing a convenient one-click solution for managing images of middleware and service environments.  
+With this tool, you can quickly obtain the latest versions of middleware images and package them into offline-compatible image files for efficient deployment in network-isolated environments.
 
-## Directory Structure
+### Directory Structure
 
 ```
 ImageExporter/
 ├── data/
 │   ├── versions/     # Version information files
 │   └── images/       # Exported image files
-├── logs/            # Log files
-├── src/             # Source code
-└── tests/           # Test files
+├── logs/             # Log files
+├── src/              # Source code
+└── tests/            # Test code
 ```
 
-## Usage
+### Usage
 
-1. Place historical version file in `data/versions` directory (optional)
-2. Run the program: `python main.py`
-3. Exported image files will be saved in `data/images/date/arch/` directory
+1. Place the historical version files in the `data/versions` directory (optional).
+2. Run the program: `python main.py`.
+3. The exported image files will be saved in the `data/images/DATE/ARCHITECTURE/` directory.
 
-## Development
+### Development Instructions
 
-1. Clone repository: `git clone <repository_url>`
-2. Install dependencies: `pip install -r requirements.txt`
-3. Run tests: `python -m pytest tests/`
+1. Clone the repository: `git clone <repository_url>`.
+2. Install dependencies: `pip install -r requirements.txt`.
+3. Run tests: `python -m pytest tests/`.
 
-## Cleanup Tool
+### Cleaning Tool
 
-Use `clean.py` for cleanup:
+Use `clean.py` to clean up:
 ```bash
 python clean.py -a    # Clean everything
-python clean.py -c    # Clean cache only
-python clean.py -v    # Clean today's version files
+python clean.py -c    # Clean only cache
+python clean.py -v    # Clean version files from today
 ```
 
-## Requirements
+### Dependency Requirements
 
 - Python 3.8+
 - Docker
-- See requirements.txt for detailed dependencies
+- For detailed dependencies, see `requirements.txt`.
 
-## Features
+### Features
 
 - Multi-architecture support (AMD64/ARM64)
 - Automatic version comparison
@@ -53,6 +54,6 @@ python clean.py -v    # Clean today's version files
 - Flexible configuration
 - Smart cleanup tool
 
-## License
+### License
 
 [MIT License](LICENSE)
