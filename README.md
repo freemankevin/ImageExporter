@@ -45,4 +45,4 @@ python clean.py -v    # 清理今天的版本文件
 
 ## 许可证
 
-[Apache License 2.0](LICENSE)
+[MIT License](LICENSE)
