@@ -327,7 +327,6 @@ class ImageManager:
                         console.print(f"\n[bold cyan]Task {self.task_count}. 处理更新镜像[/bold cyan]")
                         console.print("=" * 50)
                         self.pull_and_export_images(updates_needed)
-                        console.print("\n[bold green]所有更新任务已完成[/bold green]")
                     return updates_needed
                     
                 elif last_step == 'processing':
@@ -348,11 +347,19 @@ class ImageManager:
                         console.print(f"\n[bold cyan]Task {self.task_count}. 处理更新镜像[/bold cyan]")
                         console.print("=" * 50)
                         self.pull_and_export_images(updates_needed)
-                        console.print("\n[bold green]所有更新任务已完成[/bold green]")
                     return updates_needed
 
             # 如果没有状态文件或状态无效，从头开始执行
-            return self.compare_and_update(components)
+            updates_needed = self.compare_and_update(components)
+            
+            # 如果有需要更新的组件，继续执行镜像处理
+            if updates_needed:
+                self.task_count += 1
+                console.print(f"\n[bold cyan]Task {self.task_count}. 处理更新镜像[/bold cyan]")
+                console.print("=" * 50)
+                self.pull_and_export_images(updates_needed)
+            
+            return updates_needed
             
         except KeyboardInterrupt:
             console.print("\n[bold red]操作被用户中断[/bold red]")
