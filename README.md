@@ -4,6 +4,26 @@
 
 一个专为离线部署设计的工具，能自动下载并导出 Docker 镜像。
 
+### 支持的中间件
+
+- Elasticsearch 
+- Nginx
+- Redis
+- RabbitMQ
+- MinIO
+- Nacos
+- GeoServer
+
+### 主要功能
+
+- 自动检测和比较最新版本
+- 支持多架构镜像 (AMD64/ARM64)
+- 自动导出压缩的离线镜像包
+- 断点续传和并发下载
+- 版本记录和更新列表生成
+- 调试模式支持详细日志
+- 智能清理工具
+
 ### 目录结构
 
 ```
@@ -19,7 +39,11 @@ ImageExporter/
 ### 使用说明
 
 1. 将历史版本文件放入 `data/versions` 目录（可选）
-2. 运行程序：`python main.py`
+2. 运行程序：
+   ```bash
+   python main.py      # 正常模式
+   python main.py -D   # 调试模式（显示详细日志）
+   ```
 3. 导出的镜像文件将保存在 `data/images/日期/架构/` 目录下
 
 ### 开发说明
@@ -42,16 +66,6 @@ python clean.py -v    # 清理今天的版本文件
 - Python 3.8+
 - Docker
 - 详细依赖见 requirements.txt
-
-### 功能
-
-- 支持多架构 (AMD64/ARM64)
-- 自动版本比较
-- 并发下载
-- 恢复中断的操作
-- 详细日志记录
-- 灵活配置
-- 智能清理工具
 
 ### 许可证
 
