@@ -1,23 +1,46 @@
 #!/usr/bin/env python3
+import argparse
 from rich.console import Console
 from rich.panel import Panel
 from rich import print as rprint
 from src import CONFIG, ImageManager, logger
 from datetime import datetime
 from rich.table import Table
+from colorama import init, Fore, Style
+
+init()
 
 console = Console()
+
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description='Docker 镜像自动更新工具')
+    parser.add_argument('-D', '--debug', 
+                       action='store_true',
+                       help='启用调试模式，显示详细日志')
+    return parser.parse_args()
 
 def main():
     """主程序入口"""
     try:
+        args = parse_args()
+        
+        # 根据命令行参数设置日志级别
+        if args.debug:
+            logger.setLevel('DEBUG')
+        else:
+            logger.setLevel('INFO')
+        
         # 显示任务标题
-        console.print(Panel.fit(
-            "[bold blue]Docker 镜像自动更新工具[/bold blue]\n"
-            "[dim]用于检查和导出最新版本的 Docker 镜像[/dim]",
-            border_style="blue",
-            width=80
-        ))
+        console.print(r"""[blue bold italic]
+ ____  ___ ___   ____   ____    ___    ___  __ __  ____    ___   ____   ______    ___  ____  
+|    ||   |   | /    | /    |  /  _]  /  _]|  |  ||    \  /   \ |    \ |      |  /  _]|    \ 
+ |  | | _   _ ||  o  ||   __| /  [_  /  [_ |  |  ||  o  )|     ||  D  )|      | /  [_ |  D  )
+ |  | |  \_/  ||     ||  |  ||    _]|    _]|_   _||   _/ |  O  ||    / |_|  |_||    _]|    / 
+ |  | |   |   ||  _  ||  |_ ||   [_ |   [_ |     ||  |   |     ||    \   |  |  |   [_ |    \ 
+ |  | |   |   ||  |  ||     ||     ||     ||  |  ||  |   |     ||  .  \  |  |  |     ||  .  \
+|____||___|___||__|__||___,_||_____||_____||__|__||__|    \___/ |__|\_|  |__|  |_____||__|\_|
+[/blue bold italic]""")
         
         console.print("\n[bold cyan]任务开始[/bold cyan]")
         console.print("=" * 50)

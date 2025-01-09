@@ -2,38 +2,95 @@ import requests
 import re
 from bs4 import BeautifulSoup
 from src.utils.docker_utils import logger
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 class DockerHubAPI:
     def __init__(self, base_url):
         self.base_url = base_url
         self.logger = logger
+        
+        # 配置更强大的重试策略
+        self.session = requests.Session()
+        retries = Retry(
+            total=5,  # 增加重试次数
+            backoff_factor=1,  # 增加退避时间
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET"],  # 明确允许的方法
+            raise_on_redirect=False,
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(max_retries=retries, pool_maxsize=10)
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
 
     def get_latest_version(self, repository, tag_pattern):
         """获取符合指定模式的最新版本"""
-        if repository.startswith('library/'):
-            url = f"https://registry.hub.docker.com/v2/repositories/{repository}/tags?page_size=100"
-        else:
-            url = f"{self.base_url}/repositories/{repository}/tags"
-            
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            if data['results']:
+        try:
+            matching_tags = []
+            page = 1
+            while True:
+                url = f"https://registry.hub.docker.com/v2/repositories/{repository}/tags?page_size=100&page={page}&ordering=last_updated"
+                
+                # 调试信息改为 debug 级别
+                self.logger.debug(f"Fetching tags from: {url}")
+                
+                response = self.session.get(url, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                
+                results = data.get('results', [])
+                if not results:
+                    break
+                    
                 # 筛选符合模式的版本
-                matching_tags = [
-                    tag['name'] for tag in data['results']
-                    if re.match(tag_pattern, tag['name'])
-                ]
-                if matching_tags:
-                    return matching_tags[0]
-                else:
-                    self.logger.error(f"No matching tags found for {repository} with pattern {tag_pattern}")
-                    return None
-            else:
-                self.logger.error(f"No tags found for {repository}")
+                for tag in results:
+                    if re.match(tag_pattern, tag['name']):
+                        matching_tags.append(tag['name'])
+                
+                # 检查是否有下一页
+                if not data.get('next'):
+                    break
+                    
+                page += 1
+            
+            # 调试信息改为 debug 级别
+            self.logger.debug(f"Found {len(matching_tags)} matching tags for {repository}")
+            self.logger.debug(f"First 10 matching tags: {matching_tags[:10]}")
+            
+            if not matching_tags:
+                if 'nginx' in repository:
+                    self.logger.error(f"No matching tags found for nginx. Pattern: {tag_pattern}")
                 return None
-        else:
-            logger.error(f"[bold red]Failed to fetch latest version for {repository}: Status {response.status_code}[/bold red]")
+            
+            # 根据不同的版本格式进行排序
+            try:
+                if 'RELEASE' in tag_pattern:
+                    return matching_tags[0]  # minio 使用时间戳，保持原始顺序
+                elif 'management-alpine' in tag_pattern:
+                    # rabbitmq 版本号排序
+                    matching_tags.sort(key=lambda v: [
+                        int(x) for x in v.split('-')[0].split('.')
+                    ])
+                elif tag_pattern.startswith('^v'):
+                    # nacos 版本号排序
+                    matching_tags.sort(key=lambda v: [
+                        int(x) for x in v[1:].split('.')
+                    ])
+                else:
+                    # 标准版本号排序
+                    matching_tags.sort(key=lambda v: [
+                        int(x) for x in v.split('-')[0].split('.')  # 处理可能的 -alpine 后缀
+                    ])
+                return matching_tags[-1]
+                
+            except Exception as e:
+                self.logger.error(f"Error sorting versions for {repository}: {str(e)}")
+                # 如果排序失败，至少返回一个匹配的版本
+                return matching_tags[0]
+                
+        except Exception as e:
+            self.logger.error(f"Error processing {repository}: {str(e)}")
             return None
 
 class InfiniLabsAPI:
@@ -105,7 +162,7 @@ class Config:
             'nginx': {
                 'name': 'nginx',
                 'image': 'docker.io/library/nginx',
-                'tag_pattern': r'^[0-9]+\.[0-9]+\.[0-9]+$',
+                'tag_pattern': r'^[0-9]+\.[0-9]+\.[0-9]+(?:-alpine)?$',
                 'latest_version': None
             },
             'rabbitmq': {

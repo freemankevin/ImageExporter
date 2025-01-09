@@ -2,8 +2,7 @@
 
 English | [简体中文](README.md)
 
-**ImageExporter** is an efficient tool designed specifically for offline installation and deployment scenarios. It can automatically check, download, and export the latest versions of Docker images, providing a convenient one-click solution for managing images of middleware and service environments.  
-With this tool, you can quickly obtain the latest versions of middleware images and package them into offline-compatible image files for efficient deployment in network-isolated environments.
+A tool designed for offline deployment that automatically downloads and exports Docker images.
 
 ### Directory Structure
 
