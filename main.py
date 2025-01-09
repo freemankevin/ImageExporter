@@ -7,6 +7,7 @@ from src import CONFIG, ImageManager, logger
 from datetime import datetime
 from rich.table import Table
 from colorama import init, Fore, Style
+import logging
 
 init()
 
@@ -27,9 +28,10 @@ def main():
         
         # 根据命令行参数设置日志级别
         if args.debug:
-            logger.setLevel('DEBUG')
+            logger.setLevel(logging.DEBUG)
+            logger.debug("Debug mode enabled")
         else:
-            logger.setLevel('INFO')
+            logger.setLevel(logging.INFO)
         
         # 显示任务标题
         console.print(r"""[blue bold italic]

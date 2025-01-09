@@ -22,34 +22,23 @@ DEFAULT_TIMEOUT = 300
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 2
 
-def setup_logger():
-    """配置日志记录器"""
-    os.makedirs(LOGS_DIR, exist_ok=True)
-    log_file = os.path.join(LOGS_DIR, f'image_exporter_{datetime.now().strftime("%Y%m%d")}.log')
-    
-    logger = logging.getLogger('ImageExporter')
-    logger.setLevel(logging.DEBUG)
-    
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-    
-    # 文件日志
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    ))
-    
-    # 控制台日志
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter('%(message)s'))
-    
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    return logger
+# 创建日志格式化器
+formatter = logging.Formatter(
+    '%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
-logger = setup_logger()
+# 创建控制台处理器
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+
+# 配置日志记录器
+logger = logging.getLogger('ImageExporter')
+logger.addHandler(console_handler)
+logger.setLevel(logging.INFO)  # 默认级别，会被命令行参数覆盖
+
+# 确保不会重复输出日志
+logger.propagate = False
 
 # 文件操作相关函数
 def ensure_dirs():
