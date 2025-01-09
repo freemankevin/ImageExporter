@@ -3,7 +3,7 @@ import re
 from bs4 import BeautifulSoup
 from src.utils.docker_utils import logger
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
 
 class DockerHubAPI:
     def __init__(self, base_url):
@@ -32,7 +32,6 @@ class DockerHubAPI:
             while True:
                 url = f"https://registry.hub.docker.com/v2/repositories/{repository}/tags?page_size=100&page={page}&ordering=last_updated"
                 
-                # 调试信息改为 debug 级别
                 self.logger.debug(f"Fetching tags from: {url}")
                 
                 response = self.session.get(url, timeout=30)
@@ -54,13 +53,11 @@ class DockerHubAPI:
                     
                 page += 1
             
-            # 调试信息改为 debug 级别
             self.logger.debug(f"Found {len(matching_tags)} matching tags for {repository}")
             self.logger.debug(f"First 10 matching tags: {matching_tags[:10]}")
             
             if not matching_tags:
-                if 'nginx' in repository:
-                    self.logger.error(f"No matching tags found for nginx. Pattern: {tag_pattern}")
+                self.logger.error(f"No matching tags found for {repository} with pattern {tag_pattern}")
                 return None
             
             # 根据不同的版本格式进行排序
