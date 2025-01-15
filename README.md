@@ -29,8 +29,6 @@ ImageExporter/
 1. Place version files in `data/versions` (optional)
 2. Run:
 ```bash
-git clone https://github.com/FreemanKevin/ImageExporter
-pip install -r requirements.txt
 python main.py      # Normal mode
 python main.py -D   # Debug mode
 ```
