@@ -1,10 +1,8 @@
-## ImageExporter
+# ImageExporter
 
-[English](README_EN.md) | 简体中文
+A specialized tool for offline Docker image management and deployment.
 
-一个专为离线部署设计的工具，能自动下载并导出 Docker 镜像。
-
-### 支持的中间件
+## Supported Middleware
 
 - Elasticsearch 
 - Nginx
@@ -14,59 +12,33 @@
 - Nacos
 - GeoServer
 
-### 主要功能
 
-- 自动检测和比较最新版本
-- 支持多架构镜像 (AMD64/ARM64)
-- 自动导出压缩的离线镜像包
-- 断点续传和并发下载
-- 版本记录和更新列表生成
-- 调试模式支持详细日志
-- 智能清理工具
-
-### 目录结构
-
+## Structure
 ```
 ImageExporter/
 ├── data/
-│   ├── versions/     # 版本信息文件
-│   └── images/       # 导出的镜像文件
-├── logs/             # 日志文件
-├── src/              # 源代码
-└── tests/            # 测试代码
+│   ├── versions/     # Version info
+│   └── images/       # Exported images
+├── logs/             # Log files
+├── src/              # Source code
+└── tests/            # Test suite
 ```
 
-### 使用说明
+## Usage
 
-1. 将历史版本文件放入 `data/versions` 目录（可选）
-2. 运行程序：
-   ```bash
-   python main.py      # 正常模式
-   python main.py -D   # 调试模式（显示详细日志）
-   ```
-3. 导出的镜像文件将保存在 `data/images/日期/架构/` 目录下
-
-### 开发说明
-
-1. 克隆仓库：`git clone <repository_url>`
-2. 安装依赖：`pip install -r requirements.txt`
-3. 运行测试：`python -m pytest tests/`
-
-### 清理工具
-
-使用 `clean.py` 进行清理：
+1. Place version files in `data/versions` (optional)
+2. Run:
 ```bash
-python clean.py -a    # 清理所有内容
-python clean.py -c    # 只清理缓存
-python clean.py -v    # 清理今天的版本文件
+git clone https://github.com/FreemanKevin/ImageExporter
+pip install -r requirements.txt
+python main.py      # Normal mode
+python main.py -D   # Debug mode
 ```
 
-### 依赖要求
+## Cleanup
 
-- Python 3.8+
-- Docker
-- 详细依赖见 requirements.txt
-
-### 许可证
-
-[MIT License](LICENSE)
+```bash
+python clean.py -a    # Clean all
+python clean.py -c    # Clean cache
+python clean.py -v    # Clean today's versions
+```
