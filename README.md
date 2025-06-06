@@ -2,18 +2,52 @@
 
 A specialized tool for offline Docker image management and deployment. 🚢
 
-## Supported Software 📦 
+## Supported Software 📦
 
-| Middleware           | Image Repository                          |
-| -------------------- | ----------------------------------------- |
-| Elasticsearch         | docker.io/library/elasticsearch           |
-| Nginx                 | docker.io/library/nginx                   |
-| Redis                 | docker.io/library/redis                   |
-| RabbitMQ              | docker.io/library/rabbitmq                |
-| MinIO                 | docker.io/minio/minio                     |
-| Nacos                 | docker.io/nacos/nacos-server              |
-| GeoServer             | docker.io/kartoza/geoserver               |
-| PostgreSQL-PostGIS    | docker.io/freelabspace/postgresql-postgis |
+<table style="border-collapse: collapse; width: 100%;">
+  <thead>
+    <tr style="background-color:rgb(242, 242, 242);">
+      <th style="text-align: left; padding: 8px; vertical-align: middle;">Software</th>
+      <th style="text-align: left; padding: 8px; vertical-align: middle;">Image Name</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">Elasticsearch </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/library/elasticsearch</td>
+    </tr>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">Nginx </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/library/nginx</td>
+    </tr>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">Redis </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/library/redis</td>
+    </tr>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">RabbitMQ </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/library/rabbitmq</td>
+    </tr>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">MinIO </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/minio/minio</td>
+    </tr>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">Nacos </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/nacos/nacos-server</td>
+    </tr>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">GeoServer </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/kartoza/geoserver</td>
+    </tr>
+    <tr>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">PostgreSQL-PostGIS </td>
+      <td style="text-align: left; padding: 8px; vertical-align: middle;">docker.io/freelabspace/postgresql-postgis</td>
+    </tr>
+  </tbody>
+</table>
+
+
 
 ## Structure 🗂️
 
