@@ -1,42 +1,46 @@
-# ImageExporter
+# ImageExporter 🐳
 
-A specialized tool for offline Docker image management and deployment.
+A specialized tool for offline Docker image management and deployment. 🚢
 
-## Supported Middleware
+## Supported Software 📦 
 
-- Elasticsearch 
-- Nginx
-- Redis
-- RabbitMQ
-- MinIO
-- Nacos
-- GeoServer
+| Middleware           | Image Repository                          |
+| -------------------- | ----------------------------------------- |
+| Elasticsearch         | docker.io/library/elasticsearch           |
+| Nginx                 | docker.io/library/nginx                   |
+| Redis                 | docker.io/library/redis                   |
+| RabbitMQ              | docker.io/library/rabbitmq                |
+| MinIO                 | docker.io/minio/minio                     |
+| Nacos                 | docker.io/nacos/nacos-server              |
+| GeoServer             | docker.io/kartoza/geoserver               |
+| PostgreSQL-PostGIS    | docker.io/freelabspace/postgresql-postgis |
 
+## Structure 🗂️
 
-## Structure
 ```
 ImageExporter/
 ├── data/
-│   ├── versions/     # Version info
-│   └── images/       # Exported images
-├── logs/             # Log files
-├── src/              # Source code
-└── tests/            # Test suite
+│   ├── versions/     # Version info (e.g., latest-YYYYMMDD.txt, update-YYYYMMDD.txt) 📋
+│   └── images/       # Exported images 🗃️
+├── logs/             # Log files 📜
+├── main.py           # Main script 🚀
 ```
 
-## Usage
+## Usage 🛠️
 
-1. Place version files in `data/versions` (optional)
-2. Run:
+1. Place historical version files in `data/versions` (optional, e.g., `latest-YYYYMMDD.txt`). 📥
+2. Run the tool to check for updates and export images:
+
 ```bash
-python main.py      # Normal mode
-python main.py -D   # Debug mode
+python main.py      # Normal mode 🌟
+python main.py -D   # Debug mode 🐞
 ```
 
-## Cleanup
+3. Check the generated version files (`latest-YYYYMMDD.txt` for all versions, `update-YYYYMMDD.txt` for updates needed) in `data/versions`. 🔍
+
+## Cleanup 🧹
 
 ```bash
-python clean.py -a    # Clean all
-python clean.py -c    # Clean cache
-python clean.py -v    # Clean today's versions
+python main.py --clean      # Clean Python cache files 🗑️
+python main.py --clean-all  # Clean all temporary files (cache, images, logs, today's versions) 🗑️🔥
 ```
