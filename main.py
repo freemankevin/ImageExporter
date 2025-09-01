@@ -15,7 +15,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -111,6 +111,20 @@ COMPONENTS_CONFIG = {
         'version_type': 'multiple'  # 获取所有版本
     }
 }
+
+# ==================== 镜像处理结果类 ====================
+
+class ImageResult:
+    """镜像处理结果"""
+    def __init__(self, image_name: str, version: str, arch: str):
+        self.image_name = image_name
+        self.version = version
+        self.arch = arch
+        self.full_image_name = f"{image_name}:{version}"
+        self.pull_success = False
+        self.export_success = False
+        self.error_message = ""
+        self.file_path: Optional[Path] = None
 
 # ==================== 日志配置 ====================
 
@@ -219,6 +233,45 @@ def pad_string(s: str, width: int) -> str:
     """按显示宽度填充字符串，中文字符占 2 个宽度单位"""
     current_width = display_width(s)
     return s + " " * (width - current_width)
+
+def generate_manual_commands(failed_results: List[ImageResult], today: str) -> str:
+    """生成手动拉取和导出命令"""
+    if not failed_results:
+        return ""
+    
+    commands = []
+    commands.append("#!/bin/bash")
+    commands.append("# 手动拉取和导出失败的镜像")
+    commands.append(f"# 生成日期: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    commands.append("")
+    
+    # 按架构分组
+    arch_groups = {}
+    for result in failed_results:
+        if result.arch not in arch_groups:
+            arch_groups[result.arch] = []
+        arch_groups[result.arch].append(result)
+    
+    for arch, results in arch_groups.items():
+        commands.append(f"# {arch.upper()} 架构镜像")
+        commands.append("")
+        
+        for result in results:
+            image_name = os.path.basename(result.image_name)
+            filename = f"{image_name}_{result.version}_{arch}.tar.gz"
+            
+            commands.append(f"# 拉取 {result.full_image_name} ({arch})")
+            commands.append(f"docker pull --platform=linux/{arch} {result.full_image_name}")
+            commands.append("")
+            
+            commands.append(f"# 导出 {result.full_image_name} ({arch})")
+            if arch == 'arm64':
+                commands.append(f"docker save {result.full_image_name} --platform=linux/{arch} | gzip > data/images/{today}/{arch}/{filename}")
+            else:
+                commands.append(f"docker save {result.full_image_name} | gzip > data/images/{today}/{arch}/{filename}")
+            commands.append("")
+    
+    return "\n".join(commands)
 
 # ==================== Docker Hub API ====================
 
@@ -525,6 +578,7 @@ class ImageExporter:
         self.docker_manager = DockerManager(self.logger)
         self.version_manager = VersionManager(self.logger)
         self.today = datetime.now().strftime('%Y%m%d')
+        self.image_results: List[ImageResult] = []
         ensure_dirs()
     
     def get_latest_versions(self, components: Dict) -> Dict:
@@ -687,6 +741,22 @@ class ImageExporter:
                          else 1 for component in updates_needed.values()) * 2  # 两个架构
         current_task = 0
         
+        # 收集预期的镜像列表
+        expected_images = set()
+        for name, component in updates_needed.items():
+            image_name = component['image']
+            versions = component['latest_version']
+            
+            if not versions:
+                continue
+            
+            if not isinstance(versions, list):
+                versions = [versions]
+            
+            for version in versions:
+                for arch in ['amd64', 'arm64']:
+                    expected_images.add(f"{image_name}:{version}:{arch}")
+        
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = []
             
@@ -727,18 +797,162 @@ class ImageExporter:
                 except Exception as e:
                     self.logger.error(f"{ICON_CROSS} 处理镜像时出错: {str(e)}")
         
+        # 验证镜像文件
+        self._validate_images(expected_images)
+        
+        # 生成统计报告和手动命令
+        self._generate_summary_report()
+        
         print(f"\n{ICON_CHECK} 所有镜像已保存到: {IMAGES_DIR / self.today}")
     
     def _process_single_image(self, full_image_name: str, image_path: Path, arch: str):
         """处理单个镜像的拉取和导出"""
+        result = ImageResult(
+            image_name=full_image_name.split(':')[0],
+            version=full_image_name.split(':')[1],
+            arch=arch
+        )
+        result.file_path = image_path
+        
         try:
             # 拉取镜像
             if self.docker_manager.pull_image(full_image_name, arch):
+                result.pull_success = True
                 # 导出镜像
                 self.docker_manager.export_image(full_image_name, image_path, arch)
+                result.export_success = True
+            else:
+                result.error_message = "拉取镜像失败"
         except Exception as e:
+            result.error_message = str(e)
             self.logger.error(f"[{arch}] {ICON_CROSS} 处理镜像失败: {full_image_name}, {str(e)}")
-            raise
+        
+        self.image_results.append(result)
+    
+    def _validate_images(self, expected_images: Set[str]):
+        """验证生成的镜像文件是否与预期一致"""
+        print_separator("镜像文件验证")
+        
+        # 扫描实际生成的文件
+        actual_files = set()
+        for arch in ['amd64', 'arm64']:
+            arch_dir = IMAGES_DIR / self.today / arch
+            if arch_dir.exists():
+                for file in arch_dir.glob("*.tar.gz"):
+                    # 从文件名解析镜像信息
+                    parts = file.stem.split('_')
+                    if len(parts) >= 3:
+                        # 重建镜像名和版本
+                        name_parts = parts[:-2]  # 除了最后两个部分（版本和架构）
+                        version = parts[-2]
+                        arch_from_file = parts[-1]
+                        
+                        if arch_from_file == arch:
+                            # 根据组件配置重建完整镜像名
+                            for component in COMPONENTS_CONFIG.values():
+                                if os.path.basename(component['image']) == '_'.join(name_parts):
+                                    image_key = f"{component['image']}:{version}:{arch}"
+                                    actual_files.add(image_key)
+                                    break
+        
+        # 比较预期和实际
+        missing_files = expected_images - actual_files
+        unexpected_files = actual_files - expected_images
+        
+        print(f"{ICON_INFO} 预期镜像文件数量: {len(expected_images)}")
+        print(f"{ICON_INFO} 实际镜像文件数量: {len(actual_files)}")
+        
+        if missing_files:
+            print(f"\n{ICON_CROSS} 缺失的镜像文件 ({len(missing_files)} 个):")
+            for missing in sorted(missing_files):
+                image_name, version, arch = missing.rsplit(':', 2)
+                print(f"  - {os.path.basename(image_name)}:{version} ({arch})")
+        
+        if unexpected_files:
+            print(f"\n{ICON_WARNING} 意外的镜像文件 ({len(unexpected_files)} 个):")
+            for unexpected in sorted(unexpected_files):
+                image_name, version, arch = unexpected.rsplit(':', 2)
+                print(f"  - {os.path.basename(image_name)}:{version} ({arch})")
+        
+        if not missing_files and not unexpected_files:
+            print(f"{ICON_CHECK} 镜像文件验证通过，所有预期文件都已生成")
+    
+    def _generate_summary_report(self):
+        """生成统计报告和手动命令"""
+        print_separator("处理结果统计")
+        
+        # 统计结果
+        total_results = len(self.image_results)
+        successful_results = [r for r in self.image_results if r.pull_success and r.export_success]
+        failed_results = [r for r in self.image_results if not (r.pull_success and r.export_success)]
+        
+        print(f"{ICON_INFO} 总计处理: {total_results} 个镜像")
+        print(f"{ICON_CHECK} 成功处理: {COLOR_GREEN}{len(successful_results)}{COLOR_RESET} 个")
+        print(f"{ICON_CROSS} 失败处理: {COLOR_RED}{len(failed_results)}{COLOR_RESET} 个")
+        
+        if failed_results:
+            # 显示失败详情
+            print(f"\n{COLOR_RED}失败的镜像详情:{COLOR_RESET}")
+            for result in failed_results:
+                status = ""
+                if not result.pull_success:
+                    status = "拉取失败"
+                elif not result.export_success:
+                    status = "导出失败"
+                
+                print(f"  {ICON_CROSS} [{result.arch}] {os.path.basename(result.image_name)}:{result.version} - {status}")
+                if result.error_message:
+                    print(f"    错误: {result.error_message}")
+            
+            # 生成手动命令文件
+            manual_commands = generate_manual_commands(failed_results, self.today)
+            if manual_commands:
+                commands_file = LOGS_DIR / f"manual_commands_{self.today}.sh"
+                with open(commands_file, 'w', encoding='utf-8') as f:
+                    f.write(manual_commands)
+                
+                # 设置执行权限
+                try:
+                    os.chmod(commands_file, 0o755)
+                except Exception:
+                    pass
+                
+                print(f"\n{ICON_INFO} 手动拉取命令已生成: {commands_file}")
+                print(f"{ICON_ARROW} 可以执行以下命令来处理失败的镜像:")
+                print(f"  chmod +x {commands_file}")
+                print(f"  {commands_file}")
+        
+        # 保存详细报告
+        report_file = LOGS_DIR / f"processing_report_{self.today}.json"
+        report_data = {
+            'timestamp': datetime.now().isoformat(),
+            'total_processed': total_results,
+            'successful_count': len(successful_results),
+            'failed_count': len(failed_results),
+            'successful_images': [
+                {
+                    'image': f"{result.image_name}:{result.version}",
+                    'arch': result.arch,
+                    'file_path': str(result.file_path) if result.file_path else None
+                }
+                for result in successful_results
+            ],
+            'failed_images': [
+                {
+                    'image': f"{result.image_name}:{result.version}",
+                    'arch': result.arch,
+                    'pull_success': result.pull_success,
+                    'export_success': result.export_success,
+                    'error_message': result.error_message
+                }
+                for result in failed_results
+            ]
+        }
+        
+        with open(report_file, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f, ensure_ascii=False, indent=2)
+        
+        print(f"{ICON_INFO} 详细处理报告已保存: {report_file}")
     
     def run(self):
         """运行主程序"""
