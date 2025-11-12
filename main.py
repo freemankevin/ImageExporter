@@ -62,7 +62,7 @@ COMPONENTS_CONFIG = {
     },
     'minio': {
         'name': 'minio',
-        'image': 'docker.io/minio/minio',
+        'image': 'docker.io/derklaro/minio',
         'tag_pattern': r'^RELEASE\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$',
         'latest_version': None,
         'version_type': 'single'

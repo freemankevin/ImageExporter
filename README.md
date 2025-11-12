@@ -10,7 +10,7 @@ A specialized tool for offline Docker image management and deployment. 🚢
 | Nginx              | docker.io/library/nginx                   |
 | Redis              | docker.io/library/redis                   |
 | RabbitMQ           | docker.io/library/rabbitmq                |
-| MinIO              | docker.io/minio/minio                     |
+| MinIO              | docker.io/derklaro/minio                  |
 | Nacos              | docker.io/nacos/nacos-server              |
 | GeoServer          | docker.io/kartoza/geoserver               |
 | PostgreSQL-PostGIS | docker.io/freelabspace/postgresql-postgis |
