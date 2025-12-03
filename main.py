@@ -498,27 +498,30 @@ class VersionManager:
     
     def __init__(self, logger: logging.Logger):
         self.logger = logger
-        self.today = datetime.now().strftime('%Y%m%d')
+        self.today = datetime.now().strftime('%Y%m%d_%H%M')      # 精确到分钟
+        self.today_date = datetime.now().strftime('%Y%m%d')      # 保留日期用于目录
     
     def get_latest_history_file(self) -> Optional[Path]:
         """获取最新的历史版本文件"""
         try:
             if not VERSIONS_DIR.exists():
                 return None
-            
+
             history_files = []
+            current_timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+
             for file in VERSIONS_DIR.iterdir():
                 if file.name.startswith("latest-") and file.name.endswith(".txt"):
-                    date_str = file.name.split("-")[1].split(".")[0]
-                    if date_str != self.today:  # 排除今天的文件
-                        history_files.append((date_str, file))
-            
+                    timestamp_str = file.name.replace("latest-", "").replace(".txt", "")
+                    if timestamp_str != current_timestamp:          # 排除当前时间点
+                        history_files.append((timestamp_str, file))
+
             if not history_files:
                 return None
-            
+
             history_files.sort(reverse=True)
             return history_files[0][1]
-            
+
         except Exception as e:
             self.logger.error(f"{ICON_CROSS} 查找历史版本文件时出错: {str(e)}")
             return None
@@ -577,7 +580,8 @@ class ImageExporter:
         self.docker_api = DockerHubAPI()
         self.docker_manager = DockerManager(self.logger)
         self.version_manager = VersionManager(self.logger)
-        self.today = datetime.now().strftime('%Y%m%d')
+        self.today = datetime.now().strftime('%Y%m%d_%H%M')      # 精确到分钟
+        self.today_date = datetime.now().strftime('%Y%m%d')      # 用于目录
         self.image_results: List[ImageResult] = []
         ensure_dirs()
     
@@ -774,7 +778,7 @@ class ImageExporter:
                     full_image_name = f"{image_name}:{version}"
                     
                     for arch in ['amd64', 'arm64']:
-                        output_dir = IMAGES_DIR / self.today / arch
+                        output_dir = IMAGES_DIR / self.today_date / arch
                         output_dir.mkdir(parents=True, exist_ok=True)
                         
                         image_filename = f"{os.path.basename(image_name)}_{version}_{arch}.tar.gz"
@@ -905,7 +909,7 @@ class ImageExporter:
                     print(f"    错误: {result.error_message}")
             
             # 生成手动命令文件
-            manual_commands = generate_manual_commands(failed_results, self.today)
+            manual_commands = generate_manual_commands(failed_results, self.today_date)
             if manual_commands:
                 commands_file = LOGS_DIR / f"manual_commands_{self.today}.sh"
                 with open(commands_file, 'w', encoding='utf-8') as f:
@@ -993,7 +997,7 @@ class ImageExporter:
                     else:
                         versions_str = versions
                     print(f"  {ICON_COMPONENT} {component['name']} ({versions_str})")
-                print(f"{ICON_CHECK} 镜像文件保存至: data/images/{self.today}/")
+                print(f"{ICON_CHECK} 镜像文件保存至: data/images/{self.today_date}/")
             else:
                 print(f"{ICON_INFO} 无需处理任何组件")
             
@@ -1030,30 +1034,28 @@ def clean_cache():
 def clean_all():
     """清理所有临时文件"""
     print(f"{COLOR_YELLOW}正在执行全面清理...{COLOR_RESET}")
-    
-    # 清理缓存
+
     clean_cache()
-    
-    # 清理镜像目录
+
     if IMAGES_DIR.exists():
         shutil.rmtree(IMAGES_DIR, ignore_errors=True)
         print(f"{ICON_CHECK} 已清理: {IMAGES_DIR}")
-    
-    # 清理今天的版本文件
-    today = datetime.now().strftime('%Y%m%d')
+
+    # 清理今天所有时间点的版本文件
+    today_date = datetime.now().strftime('%Y%m%d')
     if VERSIONS_DIR.exists():
         for file in VERSIONS_DIR.iterdir():
-            if file.name.startswith(f"latest-{today}") or file.name.startswith(f"update-{today}"):
+            if (file.name.startswith(f"latest-{today_date}") or
+                file.name.startswith(f"update-{today_date}")):
                 file.unlink()
                 print(f"{ICON_CHECK} 已删除: {file}")
-    
-    # 清理日志文件
+
     if LOGS_DIR.exists():
         for log_file in LOGS_DIR.glob("*.log"):
             log_file.unlink()
             print(f"{ICON_CHECK} 已删除: {log_file}")
-    
-    print(f"{ICON_SUCCESS} 清理完成！")
+
+    print(f"{ICON_SUCCESS} 清理完成!")
 
 # ==================== 命令行接口 ====================
 
