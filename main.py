@@ -234,7 +234,7 @@ def pad_string(s: str, width: int) -> str:
     current_width = display_width(s)
     return s + " " * (width - current_width)
 
-def generate_manual_commands(failed_results: List[ImageResult], today: str) -> str:
+def generate_manual_commands(failed_results: List[ImageResult], today: str, project_root: Path) -> str:
     """生成手动拉取和导出命令"""
     if not failed_results:
         return ""
@@ -243,6 +243,9 @@ def generate_manual_commands(failed_results: List[ImageResult], today: str) -> s
     commands.append("#!/bin/bash")
     commands.append("# 手动拉取和导出失败的镜像")
     commands.append(f"# 生成日期: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    commands.append("")
+    commands.append(f"# 切换到项目根目录")
+    commands.append(f"cd \"{project_root}\" || exit 1")
     commands.append("")
     
     # 按架构分组
@@ -259,16 +262,18 @@ def generate_manual_commands(failed_results: List[ImageResult], today: str) -> s
         for result in results:
             image_name = os.path.basename(result.image_name)
             filename = f"{image_name}_{result.version}_{arch}.tar.gz"
+            output_dir = f"data/images/{today}/{arch}"
             
             commands.append(f"# 拉取 {result.full_image_name} ({arch})")
             commands.append(f"docker pull --platform=linux/{arch} {result.full_image_name}")
             commands.append("")
             
             commands.append(f"# 导出 {result.full_image_name} ({arch})")
+            commands.append(f"mkdir -p \"{output_dir}\"")
             if arch == 'arm64':
-                commands.append(f"docker save {result.full_image_name} --platform=linux/{arch} | gzip > data/images/{today}/{arch}/{filename}")
+                commands.append(f"docker save {result.full_image_name} --platform=linux/{arch} | gzip > \"{output_dir}/{filename}\"")
             else:
-                commands.append(f"docker save {result.full_image_name} | gzip > data/images/{today}/{arch}/{filename}")
+                commands.append(f"docker save {result.full_image_name} | gzip > \"{output_dir}/{filename}\"")
             commands.append("")
     
     return "\n".join(commands)
@@ -909,7 +914,7 @@ class ImageExporter:
                     print(f"    错误: {result.error_message}")
             
             # 生成手动命令文件
-            manual_commands = generate_manual_commands(failed_results, self.today_date)
+            manual_commands = generate_manual_commands(failed_results, self.today_date, PROJECT_ROOT)
             if manual_commands:
                 commands_file = LOGS_DIR / f"manual_commands_{self.today}.sh"
                 with open(commands_file, 'w', encoding='utf-8') as f:
