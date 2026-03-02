@@ -36,6 +36,21 @@ DEFAULT_TIMEOUT = 300
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 2
 
+# 镜像代理配置
+USE_MIRROR = True  # 是否使用代理镜像加速下载
+MIRROR_PREFIX = "ghcr.io/freemankevin/docker-io/"  # 代理镜像前缀
+ORIGINAL_PREFIX = "docker.io/"  # 原始镜像前缀
+
+def get_mirrored_image(image: str) -> str:
+    """获取代理镜像名称"""
+    if not USE_MIRROR:
+        return image
+    # 将 docker.io/xxx 转换为 ghcr.io/freemankevin/docker-io/xxx
+    if image.startswith(ORIGINAL_PREFIX):
+        return MIRROR_PREFIX + image[len(ORIGINAL_PREFIX):]
+    # 如果镜像已经是代理镜像或其它仓库，保持不变
+    return image
+
 # ANSI 颜色代码和个性化图标
 COLOR_GREEN = "\033[92m"
 COLOR_RED = "\033[91m"
@@ -106,7 +121,7 @@ COMPONENTS_CONFIG = {
         'name': 'postgresql-postgis',
         'image': 'docker.io/freelabspace/postgresql-postgis',
         'tag_pattern': r'^[0-9]+\.[0-9]+$',
-        'exclude_pattern': r'^buildcache-.*',
+        'exclude_pattern': r'^buildcache-.*|^12\..*|^13\..*',
         'latest_version': None,
         'version_type': 'multiple'  # 获取所有版本
     }
@@ -245,7 +260,7 @@ def generate_manual_commands(failed_results: List[ImageResult], today: str, proj
     commands.append(f"# 生成日期: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     commands.append("")
     commands.append(f"# 切换到项目根目录")
-    commands.append(f"cd \"{project_root}\" || exit 1")
+    commands.append(f"cd \"{project_root.as_posix()}\" || exit 1")
     commands.append("")
     
     # 按架构分组
@@ -762,9 +777,11 @@ class ImageExporter:
             if not isinstance(versions, list):
                 versions = [versions]
             
+            # 使用代理镜像名构建 expected_images，与实际处理保持一致
+            mirrored_image_name = get_mirrored_image(image_name)
             for version in versions:
                 for arch in ['amd64', 'arm64']:
-                    expected_images.add(f"{image_name}:{version}:{arch}")
+                    expected_images.add(f"{mirrored_image_name}:{version}:{arch}")
         
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = []
@@ -780,12 +797,15 @@ class ImageExporter:
                     versions = [versions]
                 
                 for version in versions:
-                    full_image_name = f"{image_name}:{version}"
+                    # 使用代理镜像进行拉取和导出
+                    mirrored_image = get_mirrored_image(image_name)
+                    full_image_name = f"{mirrored_image}:{version}"
                     
                     for arch in ['amd64', 'arm64']:
                         output_dir = IMAGES_DIR / self.today_date / arch
                         output_dir.mkdir(parents=True, exist_ok=True)
                         
+                        # 文件名仍然使用原始镜像名称（basename 相同）
                         image_filename = f"{os.path.basename(image_name)}_{version}_{arch}.tar.gz"
                         image_path = output_dir / image_filename
                         
@@ -812,7 +832,7 @@ class ImageExporter:
         # 生成统计报告和手动命令
         self._generate_summary_report()
         
-        print(f"\n{ICON_CHECK} 所有镜像已保存到: {IMAGES_DIR / self.today}")
+        print(f"\n{ICON_CHECK} 所有镜像已保存到: {IMAGES_DIR / self.today_date}")
     
     def _process_single_image(self, full_image_name: str, image_path: Path, arch: str):
         """处理单个镜像的拉取和导出"""
@@ -842,27 +862,44 @@ class ImageExporter:
         """验证生成的镜像文件是否与预期一致"""
         print_separator("镜像文件验证")
         
+        # 构建组件 basename 到完整镜像名的映射（使用代理镜像名，与 expected_images 一致）
+        component_map = {}
+        for component in COMPONENTS_CONFIG.values():
+            basename = os.path.basename(component['image'])
+            # 使用 get_mirrored_image 获取代理镜像名，与 _process_single_image 保持一致
+            mirrored_image = get_mirrored_image(component['image'])
+            component_map[basename] = mirrored_image
+        
         # 扫描实际生成的文件
         actual_files = set()
         for arch in ['amd64', 'arm64']:
-            arch_dir = IMAGES_DIR / self.today / arch
-            if arch_dir.exists():
-                for file in arch_dir.glob("*.tar.gz"):
-                    # 从文件名解析镜像信息
-                    parts = file.stem.split('_')
-                    if len(parts) >= 3:
-                        # 重建镜像名和版本
-                        name_parts = parts[:-2]  # 除了最后两个部分（版本和架构）
-                        version = parts[-2]
-                        arch_from_file = parts[-1]
-                        
-                        if arch_from_file == arch:
-                            # 根据组件配置重建完整镜像名
-                            for component in COMPONENTS_CONFIG.values():
-                                if os.path.basename(component['image']) == '_'.join(name_parts):
-                                    image_key = f"{component['image']}:{version}:{arch}"
-                                    actual_files.add(image_key)
-                                    break
+            arch_dir = IMAGES_DIR / self.today_date / arch
+            if not arch_dir.exists():
+                continue
+                
+            for file in arch_dir.glob("*.tar.gz"):
+                filename = file.stem  # 不带 .tar.gz
+                # 文件名格式: {basename}_{version}_{arch}
+                # 我们需要匹配已知的组件 basename
+                matched = False
+                for basename, image_name in component_map.items():
+                    prefix = f"{basename}_"
+                    if filename.startswith(prefix):
+                        # 提取版本和架构
+                        suffix = filename[len(prefix):]
+                        # suffix 格式: {version}_{arch}
+                        parts = suffix.split('_')
+                        if len(parts) >= 2:
+                            version = '_'.join(parts[:-1])  # 版本中可能包含下划线（如 RELEASE.2025-10-15T17-29-55Z）
+                            arch_from_file = parts[-1]
+                            if arch_from_file == arch:
+                                image_key = f"{image_name}:{version}:{arch}"
+                                actual_files.add(image_key)
+                                matched = True
+                                break
+                if not matched:
+                    # 无法识别的文件，忽略（可能是旧文件）
+                    pass
         
         # 比较预期和实际
         missing_files = expected_images - actual_files
@@ -928,8 +965,8 @@ class ImageExporter:
                 
                 print(f"\n{ICON_INFO} 手动拉取命令已生成: {commands_file}")
                 print(f"{ICON_ARROW} 可以执行以下命令来处理失败的镜像:")
-                print(f"  chmod +x {commands_file}")
-                print(f"  {commands_file}")
+                print(f"  chmod +x {commands_file.as_posix()}")
+                print(f"  {commands_file.as_posix()}")
         
         # 保存详细报告
         report_file = LOGS_DIR / f"processing_report_{self.today}.json"
@@ -974,7 +1011,8 @@ class ImageExporter:
             
             print(f"{COLOR_YELLOW}配置的组件列表:{COLOR_RESET}")
             for component in components.values():
-                print(f"  {ICON_COMPONENT} {component['name']} ({component['image']})")
+                mirrored = get_mirrored_image(component['image'])
+                print(f"  {ICON_COMPONENT} {component['name']} ({mirrored})")
             
             # 获取最新版本
             components = self.get_latest_versions(components)
