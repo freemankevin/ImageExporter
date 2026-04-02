@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Docker镜像离线导出工具
 支持多架构镜像导出 (amd64/arm64)
 """
+
+import sys
+import io
+
+# 设置UTF-8编码
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 import os
 import re
@@ -35,6 +45,12 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 DEFAULT_TIMEOUT = 300
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 2
+
+# 并发配置
+MAX_WORKERS = 10  # 最大并发线程数
+MAX_GLOBAL_RETRIES = 100  # 全局重试次数
+RETRY_BACKOFF_FACTOR = 2  # 重试退避因子
+MIN_FILE_SIZE = 1024 * 1024  # 最小文件大小 1MB（用于验证）
 
 # 镜像代理配置
 USE_MIRROR = True  # 是否使用代理镜像加速下载
@@ -140,6 +156,73 @@ class ImageResult:
         self.export_success = False
         self.error_message = ""
         self.file_path: Optional[Path] = None
+
+# ==================== 任务状态管理 ====================
+
+class TaskState:
+    """任务状态管理器 - 支持久化和断点续传"""
+    def __init__(self, state_file: Path):
+        self.state_file = state_file
+        self.completed_tasks: Set[str] = set()
+        self.failed_tasks: Dict[str, Dict] = {}
+        self.load_state()
+    
+    def load_state(self):
+        """加载任务状态"""
+        if self.state_file.exists():
+            try:
+                with open(self.state_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.completed_tasks = set(data.get('completed', []))
+                    self.failed_tasks = data.get('failed', {})
+            except Exception:
+                pass
+    
+    def save_state(self):
+        """保存任务状态"""
+        try:
+            data = {
+                'completed': list(self.completed_tasks),
+                'failed': self.failed_tasks,
+                'last_updated': datetime.now().isoformat()
+            }
+            with open(self.state_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    
+    def mark_completed(self, task_id: str):
+        """标记任务完成"""
+        self.completed_tasks.add(task_id)
+        if task_id in self.failed_tasks:
+            del self.failed_tasks[task_id]
+        self.save_state()
+    
+    def mark_failed(self, task_id: str, error: str, attempt: int):
+        """标记任务失败"""
+        self.failed_tasks[task_id] = {
+            'error': error,
+            'attempts': attempt,
+            'last_failed': datetime.now().isoformat()
+        }
+        self.save_state()
+    
+    def is_completed(self, task_id: str) -> bool:
+        """检查任务是否已完成"""
+        return task_id in self.completed_tasks
+    
+    def get_retry_count(self, task_id: str) -> int:
+        """获取任务重试次数"""
+        if task_id in self.failed_tasks:
+            return self.failed_tasks[task_id].get('attempts', 0)
+        return 0
+    
+    def clear_state(self):
+        """清除状态文件"""
+        self.completed_tasks.clear()
+        self.failed_tasks.clear()
+        if self.state_file.exists():
+            self.state_file.unlink()
 
 # ==================== 日志配置 ====================
 
@@ -457,59 +540,108 @@ class DockerManager:
         
         return False
     
-    def export_image(self, full_image_name: str, image_path: Path, arch: str):
-        """导出镜像并压缩 - 针对arm64使用新的导出方式"""
-        try:
-            self.logger.info(f"[{arch}] {ICON_ARROW} 正在制作离线镜像文件: {image_path.name}")
-            
-            # 确保输出目录存在
-            image_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            if arch == 'arm64':
-                # 对于 arm64 架构，使用新的导出方式
-                cmd = f"docker save {full_image_name} --platform=linux/{arch} | gzip > {image_path}"
-                result = subprocess.run(
-                    cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True
-                )
-            else:
-                # 对于 amd64 架构，使用原来的方式
-                with subprocess.Popen(
-                    ["docker", "save", full_image_name],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                ) as proc:
-                    with gzip.open(image_path, 'wb') as f:
-                        shutil.copyfileobj(proc.stdout, f)
+    def export_image(self, full_image_name: str, image_path: Path, arch: str,
+                     max_retries: int = DEFAULT_MAX_RETRIES,
+                     retry_delay: int = DEFAULT_RETRY_DELAY):
+        """导出镜像并压缩 - 针对arm64使用新的导出方式，支持重试"""
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                self.logger.info(f"[{arch}] {ICON_ARROW} 正在制作离线镜像文件: {image_path.name}")
+                
+                # 确保输出目录存在
+                image_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # 如果文件已存在且大小合理，跳过导出
+                if image_path.exists() and image_path.stat().st_size > MIN_FILE_SIZE:
+                    self.logger.info(f"[{arch}] {ICON_CHECK} 镜像文件已存在，跳过导出: {image_path.name}")
+                    return True
+                
+                if arch == 'arm64':
+                    # 对于 arm64 架构，使用新的导出方式
+                    cmd = f"docker save {full_image_name} --platform=linux/{arch} | gzip > {image_path}"
+                    result = subprocess.run(
+                        cmd,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=DEFAULT_TIMEOUT
+                    )
+                else:
+                    # 对于 amd64 架构，使用原来的方式
+                    with subprocess.Popen(
+                        ["docker", "save", full_image_name],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    ) as proc:
+                        if proc.stdout is None:
+                            raise RuntimeError("Failed to create pipe for docker save")
+                        with gzip.open(image_path, 'wb') as f:
+                            shutil.copyfileobj(proc.stdout, f)
+                        
+                        result = proc
+                        if proc.wait() != 0:
+                            if proc.stderr is None:
+                                error = "Unknown error"
+                            else:
+                                stderr_data = proc.stderr.read()
+                                error = stderr_data.decode('utf-8', errors='replace') if stderr_data else "Unknown error"
+                            cmd_args = proc.args if proc.args else "docker save"
+                            raise subprocess.CalledProcessError(
+                                proc.returncode or 1,
+                                cmd_args,
+                                error
+                            )
+                
+                if hasattr(result, 'returncode') and result.returncode != 0:
+                    stderr_output = "导出失败"
+                    if hasattr(result, 'stderr') and result.stderr:
+                        if isinstance(result.stderr, str):
+                            stderr_output = result.stderr
+                        elif isinstance(result.stderr, bytes):
+                            stderr_output = result.stderr.decode('utf-8', errors='replace')
+                    cmd_args = result.args if (hasattr(result, 'args') and result.args) else cmd
+                    raise subprocess.CalledProcessError(
+                        result.returncode,
+                        str(cmd_args),
+                        stderr_output
+                    )
+                
+                # 验证文件大小
+                if not image_path.exists() or image_path.stat().st_size < MIN_FILE_SIZE:
+                    raise RuntimeError(f"导出的文件太小或不存在: {image_path}")
+                
+                self.logger.info(f"[{arch}] {ICON_CHECK} 离线镜像文件制作完成: {image_path.name}")
+                return True
+                
+            except subprocess.TimeoutExpired:
+                last_error = "导出超时"
+                self.logger.error(f"[{arch}] {ICON_CROSS} 导出镜像超时: {full_image_name}")
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (RETRY_BACKOFF_FACTOR ** attempt)
+                    self.logger.warning(f"[{arch}] {ICON_WARNING} 重试第 {attempt + 2} 次，等待 {wait_time} 秒...")
+                    import time
+                    time.sleep(wait_time)
                     
-                    result = proc
-                    if proc.wait() != 0:
-                        error = proc.stderr.read().decode()
-                        raise subprocess.CalledProcessError(
-                            proc.returncode,
-                            proc.args,
-                            error
-                        )
+            except Exception as e:
+                last_error = str(e)
+                self.logger.error(f"[{arch}] {ICON_CROSS} 导出镜像失败: {full_image_name}, 错误: {str(e)}")
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (RETRY_BACKOFF_FACTOR ** attempt)
+                    self.logger.warning(f"[{arch}] {ICON_WARNING} 重试第 {attempt + 2} 次，等待 {wait_time} 秒...")
+                    import time
+                    time.sleep(wait_time)
             
-            if hasattr(result, 'returncode') and result.returncode != 0:
-                raise subprocess.CalledProcessError(
-                    result.returncode,
-                    result.args if hasattr(result, 'args') else cmd,
-                    result.stderr if hasattr(result, 'stderr') else "导出失败"
-                )
-            
-            self.logger.info(f"[{arch}] {ICON_CHECK} 离线镜像文件制作完成: {image_path.name}")
-            
-        except Exception as e:
-            self.logger.error(f"[{arch}] {ICON_CROSS} 导出镜像失败: {full_image_name}, 错误: {str(e)}")
-            if image_path.exists():
-                try:
-                    image_path.unlink()
-                except Exception:
-                    pass
-            raise
+            finally:
+                # 清理失败的临时文件
+                if image_path.exists() and image_path.stat().st_size < MIN_FILE_SIZE:
+                    try:
+                        image_path.unlink()
+                    except Exception:
+                        pass
+        
+        raise RuntimeError(f"导出失败，已重试 {max_retries} 次: {last_error}")
 
 # ==================== 版本管理 ====================
 
@@ -603,6 +735,11 @@ class ImageExporter:
         self.today = datetime.now().strftime('%Y%m%d_%H%M')      # 精确到分钟
         self.today_date = datetime.now().strftime('%Y%m%d')      # 用于目录
         self.image_results: List[ImageResult] = []
+        
+        # 任务状态管理
+        self.state_file = LOGS_DIR / f"task_state_{self.today}.json"
+        self.task_state = TaskState(self.state_file)
+        
         ensure_dirs()
     
     def get_latest_versions(self, components: Dict) -> Dict:
@@ -755,18 +892,14 @@ class ImageExporter:
         return updates_needed
     
     def process_images(self, updates_needed: Dict):
-        """处理镜像的拉取和导出"""
+        """处理镜像的拉取和导出 - 支持并发、重试和断点续传"""
         if not updates_needed:
             return
         
         print_separator("处理镜像")
         
-        total_tasks = sum(len(component['latest_version']) if isinstance(component['latest_version'], list) 
-                         else 1 for component in updates_needed.values()) * 2  # 两个架构
-        current_task = 0
-        
-        # 收集预期的镜像列表
-        expected_images = set()
+        # 收集所有需要处理的任务
+        tasks_to_process = []
         for name, component in updates_needed.items():
             image_name = component['image']
             versions = component['latest_version']
@@ -777,56 +910,105 @@ class ImageExporter:
             if not isinstance(versions, list):
                 versions = [versions]
             
-            # 使用代理镜像名构建 expected_images，与实际处理保持一致
-            mirrored_image_name = get_mirrored_image(image_name)
+            mirrored_image = get_mirrored_image(image_name)
             for version in versions:
                 for arch in ['amd64', 'arm64']:
-                    expected_images.add(f"{mirrored_image_name}:{version}:{arch}")
-        
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = []
-            
-            for name, component in updates_needed.items():
-                image_name = component['image']
-                versions = component['latest_version']
-                
-                if not versions:
-                    continue
-                
-                if not isinstance(versions, list):
-                    versions = [versions]
-                
-                for version in versions:
-                    # 使用代理镜像进行拉取和导出
-                    mirrored_image = get_mirrored_image(image_name)
-                    full_image_name = f"{mirrored_image}:{version}"
+                    output_dir = IMAGES_DIR / self.today_date / arch
+                    output_dir.mkdir(parents=True, exist_ok=True)
                     
-                    for arch in ['amd64', 'arm64']:
-                        output_dir = IMAGES_DIR / self.today_date / arch
-                        output_dir.mkdir(parents=True, exist_ok=True)
-                        
-                        # 文件名仍然使用原始镜像名称（basename 相同）
-                        image_filename = f"{os.path.basename(image_name)}_{version}_{arch}.tar.gz"
-                        image_path = output_dir / image_filename
-                        
-                        future = executor.submit(
-                            self._process_single_image,
-                            full_image_name,
-                            image_path,
-                            arch
-                        )
-                        futures.append(future)
-            
-            # 等待所有任务完成
-            for future in futures:
-                try:
-                    future.result()
-                    current_task += 1
-                    print(f"{ICON_ARROW} 进度: {current_task}/{total_tasks}")
-                except Exception as e:
-                    self.logger.error(f"{ICON_CROSS} 处理镜像时出错: {str(e)}")
+                    image_filename = f"{os.path.basename(image_name)}_{version}_{arch}.tar.gz"
+                    image_path = output_dir / image_filename
+                    task_id = f"{mirrored_image}:{version}:{arch}"
+                    
+                    tasks_to_process.append({
+                        'task_id': task_id,
+                        'full_image_name': f"{mirrored_image}:{version}",
+                        'image_path': image_path,
+                        'arch': arch,
+                        'component_name': component['name']
+                    })
         
-        # 验证镜像文件
+        total_tasks = len(tasks_to_process)
+        print(f"{ICON_INFO} 总共需要处理 {total_tasks} 个镜像任务")
+        
+        # 检查已完成的任务（断点续传）
+        tasks_to_run = []
+        skipped_count = 0
+        for task in tasks_to_process:
+            if self.task_state.is_completed(task['task_id']):
+                # 验证文件是否存在且大小合理
+                if task['image_path'].exists() and task['image_path'].stat().st_size > MIN_FILE_SIZE:
+                    skipped_count += 1
+                    self.logger.info(f"跳过已完成的任务: {task['task_id']}")
+                    continue
+            tasks_to_run.append(task)
+        
+        if skipped_count > 0:
+            print(f"{ICON_CHECK} 跳过已完成的任务: {skipped_count} 个")
+        
+        if not tasks_to_run:
+            print(f"{ICON_SUCCESS} 所有任务已完成，无需重复处理")
+            return
+        
+        print(f"{ICON_ARROW} 需要处理的任务: {len(tasks_to_run)} 个")
+        
+        # 全局重试机制
+        for retry_round in range(MAX_GLOBAL_RETRIES):
+            if not tasks_to_run:
+                break
+            
+            print(f"\n{COLOR_YELLOW}{'='*60}{COLOR_RESET}")
+            print(f"{COLOR_YELLOW}第 {retry_round + 1}/{MAX_GLOBAL_RETRIES} 轮处理{COLOR_RESET}")
+            print(f"{COLOR_YELLOW}{'='*60}{COLOR_RESET}")
+            
+            # 并发处理
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = {}
+                for task in tasks_to_run:
+                    future = executor.submit(
+                        self._process_single_image,
+                        task['full_image_name'],
+                        task['image_path'],
+                        task['arch'],
+                        task['task_id']
+                    )
+                    futures[future] = task
+                
+                # 收集结果
+                failed_tasks = []
+                completed_count = 0
+                for future in futures:
+                    task = futures[future]
+                    try:
+                        result = future.result()
+                        if result.pull_success and result.export_success:
+                            self.task_state.mark_completed(task['task_id'])
+                            completed_count += 1
+                            print(f"{ICON_CHECK} [{completed_count}/{len(tasks_to_run)}] {task['task_id']}")
+                        else:
+                            failed_tasks.append(task)
+                            retry_count = self.task_state.get_retry_count(task['task_id'])
+                            self.task_state.mark_failed(task['task_id'], result.error_message, retry_count + 1)
+                    except Exception as e:
+                        failed_tasks.append(task)
+                        retry_count = self.task_state.get_retry_count(task['task_id'])
+                        self.task_state.mark_failed(task['task_id'], str(e), retry_count + 1)
+                        self.logger.error(f"{ICON_CROSS} 处理镜像时出错: {task['task_id']}, {str(e)}")
+            
+            # 检查是否还有失败的任务
+            if not failed_tasks:
+                break
+            
+            # 准备下一轮重试
+            tasks_to_run = failed_tasks
+            if retry_round < MAX_GLOBAL_RETRIES - 1:
+                wait_time = DEFAULT_RETRY_DELAY * (RETRY_BACKOFF_FACTOR ** retry_round)
+                print(f"\n{ICON_WARNING} {len(failed_tasks)} 个任务失败，{wait_time} 秒后重试...")
+                import time
+                time.sleep(wait_time)
+        
+        # 最终验证
+        expected_images = {task['task_id'] for task in tasks_to_process}
         self._validate_images(expected_images)
         
         # 生成统计报告和手动命令
@@ -834,7 +1016,7 @@ class ImageExporter:
         
         print(f"\n{ICON_CHECK} 所有镜像已保存到: {IMAGES_DIR / self.today_date}")
     
-    def _process_single_image(self, full_image_name: str, image_path: Path, arch: str):
+    def _process_single_image(self, full_image_name: str, image_path: Path, arch: str, task_id: Optional[str] = None):
         """处理单个镜像的拉取和导出"""
         result = ImageResult(
             image_name=full_image_name.split(':')[0],
@@ -844,12 +1026,14 @@ class ImageExporter:
         result.file_path = image_path
         
         try:
-            # 拉取镜像
+            # 拉取镜像（带重试）
             if self.docker_manager.pull_image(full_image_name, arch):
                 result.pull_success = True
-                # 导出镜像
-                self.docker_manager.export_image(full_image_name, image_path, arch)
-                result.export_success = True
+                # 导出镜像（带重试）
+                if self.docker_manager.export_image(full_image_name, image_path, arch):
+                    result.export_success = True
+                else:
+                    result.error_message = "导出镜像失败"
             else:
                 result.error_message = "拉取镜像失败"
         except Exception as e:
@@ -857,56 +1041,65 @@ class ImageExporter:
             self.logger.error(f"[{arch}] {ICON_CROSS} 处理镜像失败: {full_image_name}, {str(e)}")
         
         self.image_results.append(result)
+        return result
     
     def _validate_images(self, expected_images: Set[str]):
-        """验证生成的镜像文件是否与预期一致"""
+        """验证生成的镜像文件是否与预期一致，并检查文件完整性"""
         print_separator("镜像文件验证")
         
-        # 构建组件 basename 到完整镜像名的映射（使用代理镜像名，与 expected_images 一致）
+        # 构建组件 basename 到完整镜像名的映射
         component_map = {}
         for component in COMPONENTS_CONFIG.values():
             basename = os.path.basename(component['image'])
-            # 使用 get_mirrored_image 获取代理镜像名，与 _process_single_image 保持一致
             mirrored_image = get_mirrored_image(component['image'])
             component_map[basename] = mirrored_image
         
-        # 扫描实际生成的文件
+        # 扫描实际生成的文件并验证完整性
         actual_files = set()
+        invalid_files = []
+        
         for arch in ['amd64', 'arm64']:
             arch_dir = IMAGES_DIR / self.today_date / arch
             if not arch_dir.exists():
                 continue
                 
             for file in arch_dir.glob("*.tar.gz"):
-                filename = file.stem  # 不带 .tar.gz
-                # 文件名格式: {basename}_{version}_{arch}
-                # 我们需要匹配已知的组件 basename
+                file_size = file.stat().st_size
+                
+                # 检查文件大小是否合理
+                if file_size < MIN_FILE_SIZE:
+                    invalid_files.append((file, file_size, "文件太小"))
+                    continue
+                
+                filename = file.stem
                 matched = False
                 for basename, image_name in component_map.items():
                     prefix = f"{basename}_"
                     if filename.startswith(prefix):
-                        # 提取版本和架构
                         suffix = filename[len(prefix):]
-                        # suffix 格式: {version}_{arch}
                         parts = suffix.split('_')
                         if len(parts) >= 2:
-                            version = '_'.join(parts[:-1])  # 版本中可能包含下划线（如 RELEASE.2025-10-15T17-29-55Z）
+                            version = '_'.join(parts[:-1])
                             arch_from_file = parts[-1]
                             if arch_from_file == arch:
                                 image_key = f"{image_name}:{version}:{arch}"
                                 actual_files.add(image_key)
                                 matched = True
                                 break
+                
                 if not matched:
-                    # 无法识别的文件，忽略（可能是旧文件）
-                    pass
+                    invalid_files.append((file, file_size, "无法识别的文件"))
         
         # 比较预期和实际
         missing_files = expected_images - actual_files
-        unexpected_files = actual_files - expected_images
         
         print(f"{ICON_INFO} 预期镜像文件数量: {len(expected_images)}")
-        print(f"{ICON_INFO} 实际镜像文件数量: {len(actual_files)}")
+        print(f"{ICON_INFO} 有效镜像文件数量: {len(actual_files)}")
+        
+        if invalid_files:
+            print(f"\n{ICON_CROSS} 无效的镜像文件 ({len(invalid_files)} 个):")
+            for file, size, reason in invalid_files:
+                print(f"  - {file.name} ({size / 1024 / 1024:.2f} MB): {reason}")
         
         if missing_files:
             print(f"\n{ICON_CROSS} 缺失的镜像文件 ({len(missing_files)} 个):")
@@ -914,14 +1107,14 @@ class ImageExporter:
                 image_name, version, arch = missing.rsplit(':', 2)
                 print(f"  - {os.path.basename(image_name)}:{version} ({arch})")
         
-        if unexpected_files:
-            print(f"\n{ICON_WARNING} 意外的镜像文件 ({len(unexpected_files)} 个):")
-            for unexpected in sorted(unexpected_files):
-                image_name, version, arch = unexpected.rsplit(':', 2)
-                print(f"  - {os.path.basename(image_name)}:{version} ({arch})")
-        
-        if not missing_files and not unexpected_files:
-            print(f"{ICON_CHECK} 镜像文件验证通过，所有预期文件都已生成")
+        # 最终验证结果
+        if not missing_files and not invalid_files:
+            print(f"{ICON_CHECK} 镜像文件验证通过，所有预期文件都已正确生成")
+            self.task_state.clear_state()
+            return True
+        else:
+            print(f"{ICON_CROSS} 验证失败，存在缺失或无效文件")
+            return False
     
     def _generate_summary_report(self):
         """生成统计报告和手动命令"""
@@ -957,7 +1150,6 @@ class ImageExporter:
                 with open(commands_file, 'w', encoding='utf-8') as f:
                     f.write(manual_commands)
                 
-                # 设置执行权限
                 try:
                     os.chmod(commands_file, 0o755)
                 except Exception:
@@ -975,11 +1167,13 @@ class ImageExporter:
             'total_processed': total_results,
             'successful_count': len(successful_results),
             'failed_count': len(failed_results),
+            'all_success': len(failed_results) == 0,
             'successful_images': [
                 {
                     'image': f"{result.image_name}:{result.version}",
                     'arch': result.arch,
-                    'file_path': str(result.file_path) if result.file_path else None
+                    'file_path': str(result.file_path) if result.file_path else None,
+                    'file_size_mb': result.file_path.stat().st_size / 1024 / 1024 if result.file_path and result.file_path.exists() else 0
                 }
                 for result in successful_results
             ],
@@ -999,6 +1193,9 @@ class ImageExporter:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
         
         print(f"{ICON_INFO} 详细处理报告已保存: {report_file}")
+        
+        # 如果有失败，返回 False
+        return len(failed_results) == 0
     
     def run(self):
         """运行主程序"""
@@ -1014,6 +1211,12 @@ class ImageExporter:
                 mirrored = get_mirrored_image(component['image'])
                 print(f"  {ICON_COMPONENT} {component['name']} ({mirrored})")
             
+            # 显示并发和重试配置
+            print(f"\n{COLOR_CYAN}并发和重试配置:{COLOR_RESET}")
+            print(f"  {ICON_INFO} 最大并发数: {MAX_WORKERS}")
+            print(f"  {ICON_INFO} 全局重试次数: {MAX_GLOBAL_RETRIES}")
+            print(f"  {ICON_INFO} 单任务重试次数: {DEFAULT_MAX_RETRIES}")
+            
             # 获取最新版本
             components = self.get_latest_versions(components)
             
@@ -1022,6 +1225,9 @@ class ImageExporter:
             
             # 处理镜像
             self.process_images(updates_needed)
+            
+            # 验证所有镜像是否成功
+            all_success = all(r.pull_success and r.export_success for r in self.image_results)
             
             # 显示总结
             end_time = datetime.now()
@@ -1043,12 +1249,22 @@ class ImageExporter:
                 print(f"{ICON_CHECK} 镜像文件保存至: data/images/{self.today_date}/")
             else:
                 print(f"{ICON_INFO} 无需处理任何组件")
+                return 0
             
-            print(f"\n{ICON_SUCCESS} 任务完成！")
-            return 0
+            # 最终状态
+            if all_success:
+                print(f"\n{ICON_SUCCESS} 所有任务完全成功！")
+                self.task_state.clear_state()
+                return 0
+            else:
+                failed_count = sum(1 for r in self.image_results if not (r.pull_success and r.export_success))
+                print(f"\n{ICON_CROSS} 任务未完全成功，有 {failed_count} 个镜像处理失败")
+                print(f"{ICON_INFO} 请检查日志和手动命令脚本，手动处理失败的镜像")
+                return 1
             
         except KeyboardInterrupt:
             print(f"\n{ICON_CROSS} 操作被用户中断")
+            print(f"{ICON_INFO} 任务状态已保存，下次运行将自动续传")
             return 1
         except Exception as e:
             self.logger.error(f"{ICON_CROSS} 程序执行出错: {str(e)}")
