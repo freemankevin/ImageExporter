@@ -1,0 +1,82 @@
+# Docker镜像导出工具配置文件
+
+# Docker配置
+docker:
+  timeout: 300
+  max_retries: 3
+  retry_delay: 2
+
+# 并发配置
+concurrency:
+  max_workers: 10
+  max_global_retries: 100
+  retry_backoff_factor: 2
+
+# 文件验证配置
+validation:
+  min_file_size: 1048576  # 最小文件大小 1MB（字节）
+
+# 镜像代理配置
+mirror:
+  enabled: true
+  prefix: "ghcr.io/freemankevin/docker-io/"
+  original_prefix: "docker.io/"
+
+# 组件配置
+components:
+  elasticsearch:
+    name: elasticsearch
+    image: docker.io/library/elasticsearch
+    tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    latest_version: null
+    version_type: single
+  
+  minio:
+    name: minio
+    image: docker.io/derklaro/minio
+    tag_pattern: "^RELEASE\\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$"
+    latest_version: null
+    version_type: single
+  
+  nacos:
+    name: nacos
+    image: docker.io/nacos/nacos-server
+    tag_pattern: "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    latest_version: null
+    version_type: single
+  
+  nginx:
+    name: nginx
+    image: docker.io/library/nginx
+    tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-alpine)?$"
+    latest_version: null
+    version_type: single
+  
+  rabbitmq:
+    name: rabbitmq
+    image: docker.io/library/rabbitmq
+    tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+-management-alpine$"
+    latest_version: null
+    version_type: single
+  
+  redis:
+    name: redis
+    image: docker.io/library/redis
+    tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    latest_version: null
+    version_type: single
+  
+  geoserver:
+    name: geoserver
+    image: docker.io/kartoza/geoserver
+    tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    latest_version: null
+    version_type: single
+  
+  postgresql-postgis:
+    name: postgresql-postgis
+    image: docker.io/freelabspace/postgresql-postgis
+    tag_pattern: "^[0-9]+\\.[0-9]+$"
+    exclude_pattern: "^buildcache-.*|^12\\..*|^13\\..*"
+    latest_version: null
+    version_type: multiple
