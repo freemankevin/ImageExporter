@@ -3,16 +3,10 @@
 """配置管理模块"""
 
 import sys
-import io
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 import yaml
-
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-if sys.stderr.encoding != 'utf-8':
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -60,8 +54,9 @@ class Config:
             },
             'mirror': {
                 'enabled': True,
-                'prefix': 'ghcr.io/freemankevin/docker-io/',
-                'original_prefix': 'docker.io/'
+                'ghcr_registry': 'ghcr.io/freemankevin/',
+                'original_prefix': 'docker.io/',
+                'special_mappings': {}
             },
             'components': {}
         }
@@ -119,9 +114,13 @@ class Config:
         return self.mirror.get('enabled', True)
     
     @property
-    def mirror_prefix(self) -> str:
-        return self.mirror.get('prefix', 'ghcr.io/freemankevin/docker-io/')
+    def ghcr_registry(self) -> str:
+        return self.mirror.get('ghcr_registry', 'ghcr.io/freemankevin/')
     
+    @property
+    def special_mappings(self) -> Dict[str, str]:
+        return self.mirror.get('special_mappings', {})
+
     @property
     def original_prefix(self) -> str:
         return self.mirror.get('original_prefix', 'docker.io/')
@@ -131,11 +130,24 @@ config = Config()
 
 
 def get_mirrored_image(image: str) -> str:
-    """获取代理镜像名称"""
+    """获取 GHCR 镜像名称
+    
+    转换规则：
+    1. 检查是否在特殊映射表中
+    2. 移除 docker.io/ 前缀
+    3. 添加 ghcr.io/freemankevin/ 前缀
+    """
     if not config.mirror_enabled:
         return image
+    
+    special_mappings = config.special_mappings
+    if image in special_mappings:
+        return special_mappings[image]
+    
     if image.startswith(config.original_prefix):
-        return config.mirror_prefix + image[len(config.original_prefix):]
+        image_without_prefix = image[len(config.original_prefix):]
+        return config.ghcr_registry + image_without_prefix
+    
     return image
 
 

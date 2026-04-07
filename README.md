@@ -8,10 +8,9 @@ Docker镜像离线导出工具，支持 AMD64/ARM64 双架构。
 # 安装依赖
 pip install -r requirements.txt
 
-# 运行
-python main.py          # 正常模式
-python main.py -D       # 调试模式
-python main.py --clean  # 清理缓存
+py main.py            # 正常模式
+py main.py -D         # 调试模式
+py main.py --clean    # 清理缓存
 ```
 
 ## 支持的镜像

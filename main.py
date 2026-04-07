@@ -2,6 +2,18 @@
 # -*- coding: utf-8 -*-
 """Docker镜像离线导出工具 - 主入口"""
 
+import sys
+import io
+import os
+
+# 设置环境编码，解决Windows下中文输出问题
+if sys.platform == 'win32':
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    if sys.stderr.encoding != 'utf-8':
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 import argparse
 
 from app.services.exporter import ImageExporter

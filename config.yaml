@@ -16,11 +16,14 @@ concurrency:
 validation:
   min_file_size: 1048576  # 最小文件大小 1MB（字节）
 
-# 镜像代理配置
+# GHCR镜像配置
 mirror:
   enabled: true
-  prefix: "ghcr.io/freemankevin/docker-io/"
+  ghcr_registry: "ghcr.io/freemankevin/"
   original_prefix: "docker.io/"
+  # 特殊映射：DockerHub镜像名 -> GHCR镜像名
+  special_mappings:
+    "docker.io/derklaro/minio": "ghcr.io/freemankevin/minio/aistor/minio"
 
 # 组件配置
 components:
