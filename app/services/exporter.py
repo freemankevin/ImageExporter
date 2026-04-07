@@ -26,6 +26,7 @@ from app.services.docker_manager import DockerManager
 from app.services.version_manager import VersionManager
 from app.utils.helpers import version_key, get_major_version, generate_manual_commands
 from app.utils.display import pad_string, print_separator, print_banner
+from app.utils.report_generator import generate_html_report
 
 console = get_console()
 _results_lock = Lock()
@@ -386,18 +387,24 @@ class ImageExporter:
         result.file_path = image_path
         
         try:
-            if self.docker_manager.pull_image(full_image_name, arch):
+            pull_result = self.docker_manager.pull_image(full_image_name, arch)
+            if pull_result:
                 result.pull_success = True
                 if self.export_images:
-                    if self.docker_manager.export_image(full_image_name, image_path, arch):
+                    export_result = self.docker_manager.export_image(full_image_name, image_path, arch)
+                    if export_result:
                         result.export_success = True
                     else:
                         result.error_message = "导出失败"
+                        result.export_success = False
                 else:
                     result.export_success = True
             else:
+                result.pull_success = False
                 result.error_message = "拉取失败"
         except Exception as e:
+            result.pull_success = False
+            result.export_success = False
             result.error_message = str(e)
             self.logger.error(f"[{arch}] {ICONS['CROSS']} 处理失败: {full_image_name}")
         
@@ -430,16 +437,21 @@ class ImageExporter:
                     invalid_files.append((file, file_size, "文件太小"))
                     continue
                 
-                filename = file.stem
+                filename = file.name[:-7]  # Remove .tar.gz suffix
                 matched = False
-                for basename, image_name in component_map.items():
-                    prefix = f"{basename}_"
-                    if filename.startswith(prefix):
-                        suffix = filename[len(prefix):]
-                        parts = suffix.split('_')
-                        if len(parts) >= 2:
-                            version = '_'.join(parts[:-1])
-                            arch_from_file = parts[-1]
+                
+                arch_suffix = "_amd64"
+                if filename.endswith("_arm64"):
+                    arch_suffix = "_arm64"
+                
+                if filename.endswith(arch_suffix):
+                    arch_from_file = arch_suffix[1:]
+                    version_and_name = filename[:-len(arch_suffix)]
+                    
+                    for basename, image_name in component_map.items():
+                        prefix = f"{basename}_"
+                        if version_and_name.startswith(prefix):
+                            version = version_and_name[len(prefix):]
                             if arch_from_file == arch:
                                 image_key = f"{image_name}:{version}:{arch}"
                                 actual_files.add(image_key)
@@ -541,6 +553,10 @@ class ImageExporter:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
         
         print(f"{ICONS['INFO']} 详细报告: {report_file}")
+        
+        html_report_file = LOGS_DIR / f"report_{self.today}.html"
+        generate_html_report(report_data, html_report_file)
+        print(f"{ICONS['INFO']} HTML报告: {html_report_file}")
         
         return len(failed_results) == 0
     

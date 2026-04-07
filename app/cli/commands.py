@@ -48,20 +48,12 @@ def clean_all():
     
     clean_cache()
     
-    if IMAGES_DIR.exists():
-        shutil.rmtree(IMAGES_DIR, ignore_errors=True)
-        print(f"{ICONS['CHECK']} 清理: {IMAGES_DIR}")
-    
-    today_date = datetime.now().strftime('%Y%m%d')
-    if VERSIONS_DIR.exists():
-        for file in VERSIONS_DIR.iterdir():
-            if file.name.startswith(f"latest-{today_date}") or file.name.startswith(f"update-{today_date}"):
-                file.unlink()
-                print(f"{ICONS['CHECK']} 删除: {file}")
+    if DATA_DIR.exists():
+        shutil.rmtree(DATA_DIR, ignore_errors=True)
+        print(f"{ICONS['CHECK']} 清理: {DATA_DIR}")
     
     if LOGS_DIR.exists():
-        for log_file in LOGS_DIR.glob("*.log"):
-            log_file.unlink()
-            print(f"{ICONS['CHECK']} 删除: {log_file}")
+        shutil.rmtree(LOGS_DIR, ignore_errors=True)
+        print(f"{ICONS['CHECK']} 清理: {LOGS_DIR}")
     
     print(f"{ICONS['SUCCESS']} 清理完成!")
