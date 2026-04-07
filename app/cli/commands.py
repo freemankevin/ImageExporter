@@ -6,7 +6,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from app.core.config import IMAGES_DIR, VERSIONS_DIR, LOGS_DIR, PROJECT_ROOT
+from app.core.config import IMAGES_DIR, VERSIONS_DIR, LOGS_DIR, PROJECT_ROOT, DATA_DIR
 from app.utils.display import print_banner, print_separator, COLORS, ICONS
 
 
@@ -25,6 +25,21 @@ def clean_cache():
                 pyc_file = Path(root) / file_name
                 pyc_file.unlink(missing_ok=True)
                 print(f"{ICONS['CHECK']} 删除: {pyc_file}")
+
+
+def clean_data():
+    """清理数据和日志目录"""
+    print(f"{COLORS['YELLOW']}清理数据和日志...{COLORS['RESET']}")
+    
+    if DATA_DIR.exists():
+        shutil.rmtree(DATA_DIR, ignore_errors=True)
+        print(f"{ICONS['CHECK']} 清理: {DATA_DIR}")
+    
+    if LOGS_DIR.exists():
+        shutil.rmtree(LOGS_DIR, ignore_errors=True)
+        print(f"{ICONS['CHECK']} 清理: {LOGS_DIR}")
+    
+    print(f"{ICONS['SUCCESS']} 清理完成!")
 
 
 def clean_all():

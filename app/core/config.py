@@ -115,40 +115,19 @@ class Config:
     
     @property
     def ghcr_registry(self) -> str:
-        return self.mirror.get('ghcr_registry', 'ghcr.io/freemankevin/')
-    
-    @property
-    def special_mappings(self) -> Dict[str, str]:
-        return self.mirror.get('special_mappings', {})
-
-    @property
-    def original_prefix(self) -> str:
-        return self.mirror.get('original_prefix', 'docker.io/')
+        return self.mirror.get('ghcr_registry', 'ghcr.io/')
 
 
 config = Config()
 
 
 def get_mirrored_image(image: str) -> str:
-    """获取 GHCR 镜像名称
+    """获取完整的 GHCR 镜像地址
     
-    转换规则：
-    1. 检查是否在特殊映射表中
-    2. 移除 docker.io/ 前缀
-    3. 添加 ghcr.io/freemankevin/ 前缀
+    image 格式: freemankevin/library/elasticsearch
+    返回格式: ghcr.io/freemankevin/library/elasticsearch
     """
-    if not config.mirror_enabled:
-        return image
-    
-    special_mappings = config.special_mappings
-    if image in special_mappings:
-        return special_mappings[image]
-    
-    if image.startswith(config.original_prefix):
-        image_without_prefix = image[len(config.original_prefix):]
-        return config.ghcr_registry + image_without_prefix
-    
-    return image
+    return f"{config.ghcr_registry}{image}"
 
 
 def ensure_dirs():

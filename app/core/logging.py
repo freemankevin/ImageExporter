@@ -4,6 +4,10 @@
 
 import logging
 from datetime import datetime
+from typing import Optional
+
+from rich.logging import RichHandler
+from rich.console import Console
 
 from app.core.config import LOGS_DIR, ensure_dirs
 
@@ -26,6 +30,16 @@ ICONS = {
     'ARROW': "→"
 }
 
+_shared_console: Optional[Console] = None
+
+
+def get_console() -> Console:
+    """获取共享的 rich Console 实例"""
+    global _shared_console
+    if _shared_console is None:
+        _shared_console = Console()
+    return _shared_console
+
 
 class ColoredFormatter(logging.Formatter):
     """自定义彩色日志格式化器"""
@@ -44,22 +58,35 @@ class ColoredFormatter(logging.Formatter):
         return super().format(record)
 
 
-def setup_logger(debug: bool = False) -> logging.Logger:
-    """设置日志记录器"""
+class QuietRichHandler(RichHandler):
+    """静默的 Rich 日志处理器，用于在进度条运行时抑制控制台输出"""
+    
+    def __init__(self, *args, quiet: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._quiet = quiet
+    
+    def set_quiet(self, quiet: bool):
+        """设置是否静默控制台输出"""
+        self._quiet = quiet
+    
+    def emit(self, record):
+        if self._quiet:
+            return
+        super().emit(record)
+
+
+def setup_logger(debug: bool = False, quiet_console: bool = False) -> logging.Logger:
+    """设置日志记录器
+    
+    Args:
+        debug: 是否启用调试模式
+        quiet_console: 是否静默控制台输出（用于进度条运行时）
+    """
     logger = logging.getLogger('ImageExporter')
     logger.handlers.clear()
     
     level = logging.DEBUG if debug else logging.INFO
     logger.setLevel(level)
-    
-    formatter = ColoredFormatter(
-        fmt='%(asctime)s │ %(levelname)-8s │ %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
     
     ensure_dirs()
     log_file = LOGS_DIR / f"exporter_{datetime.now().strftime('%Y%m%d')}.log"
@@ -69,6 +96,16 @@ def setup_logger(debug: bool = False) -> logging.Logger:
         datefmt='%Y-%m-%d %H:%M:%S'
     ))
     logger.addHandler(file_handler)
+    
+    console = get_console()
+    rich_handler = QuietRichHandler(
+        console=console,
+        show_path=False,
+        show_time=True,
+        quiet=quiet_console
+    )
+    rich_handler.setFormatter(logging.Formatter(fmt='%(message)s'))
+    logger.addHandler(rich_handler)
     
     logger.propagate = False
     return logger

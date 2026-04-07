@@ -2,18 +2,7 @@
 # -*- coding: utf-8 -*-
 """显示工具函数"""
 
-from app.core.logging import COLORS
-
-
-ICONS = {
-    'CHECK': "✓",
-    'CROSS': "✗",
-    'INFO': "●",
-    'SUCCESS': "★",
-    'WARNING': "!",
-    'COMPONENT': "◆",
-    'ARROW': "→"
-}
+from app.core.logging import COLORS, ICONS
 
 
 def display_width(s: str) -> int:

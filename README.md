@@ -11,6 +11,7 @@ pip install -r requirements.txt
 py main.py            # 正常模式
 py main.py -D         # 调试模式
 py main.py --clean    # 清理缓存
+py main.py --clean-data # 清理旧数据
 ```
 
 ## 支持的镜像

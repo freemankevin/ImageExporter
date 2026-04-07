@@ -19,66 +19,62 @@ validation:
 # GHCR镜像配置
 mirror:
   enabled: true
-  ghcr_registry: "ghcr.io/freemankevin/"
-  original_prefix: "docker.io/"
-  # 特殊映射：DockerHub镜像名 -> GHCR镜像名
-  special_mappings:
-    "docker.io/derklaro/minio": "ghcr.io/freemankevin/minio/aistor/minio"
+  ghcr_registry: "ghcr.io/"
 
-# 组件配置
+# 组件配置 (使用 GHCR 镜像路径，用于版本查询和拉取)
 components:
   elasticsearch:
     name: elasticsearch
-    image: docker.io/library/elasticsearch
+    image: freemankevin/library/elasticsearch
     tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
     latest_version: null
     version_type: single
   
   minio:
     name: minio
-    image: docker.io/derklaro/minio
+    image: freemankevin/minio/aistor/minio
     tag_pattern: "^RELEASE\\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$"
     latest_version: null
     version_type: single
   
   nacos:
     name: nacos
-    image: docker.io/nacos/nacos-server
+    image: freemankevin/nacos/nacos-server
     tag_pattern: "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
     latest_version: null
     version_type: single
   
   nginx:
     name: nginx
-    image: docker.io/library/nginx
+    image: freemankevin/library/nginx
     tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-alpine)?$"
     latest_version: null
     version_type: single
   
   rabbitmq:
     name: rabbitmq
-    image: docker.io/library/rabbitmq
+    image: freemankevin/library/rabbitmq
     tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+-management-alpine$"
     latest_version: null
     version_type: single
   
   redis:
     name: redis
-    image: docker.io/library/redis
+    image: freemankevin/library/redis
     tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
     latest_version: null
     version_type: single
   
   geoserver:
     name: geoserver
-    image: docker.io/kartoza/geoserver
+    image: freemankevin/kartoza/geoserver
     tag_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
     latest_version: null
     version_type: single
   
   postgresql-postgis:
     name: postgresql-postgis
-    image: docker.io/freelabspace/postgresql-postgis
+    image: freemankevin/freelabspace/postgresql-postgis
     tag_pattern: "^[0-9]+\\.[0-9]+$"
     exclude_pattern: "^buildcache-.*|^12\\..*|^13\\..*"
     latest_version: null

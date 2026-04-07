@@ -27,6 +27,9 @@ wheels/
 /data/versions/*
 state.json
 
+# Environment
+.env
+
 # IDE
 .idea/
 .vscode/

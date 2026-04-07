@@ -5,37 +5,72 @@
 import json
 import os
 import time
+import signal
 import logging
 from datetime import datetime
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from typing import Dict, List, Set, Optional
+from threading import Lock
+
+from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, SpinnerColumn, MofNCompleteColumn
+from rich.console import Console
 
 from app.core.config import config, get_mirrored_image, IMAGES_DIR, LOGS_DIR, PROJECT_ROOT
-from app.core.logging import setup_logger, COLORS, ICONS
+from app.core.logging import setup_logger, COLORS, ICONS, get_console, QuietRichHandler
+from app.core.shutdown import shutdown_event
 from app.models.image import ImageResult
 from app.models.task import TaskState
-from app.services.docker_api import DockerHubAPI
+from app.services.docker_api import ContainerRegistryAPI
 from app.services.docker_manager import DockerManager
 from app.services.version_manager import VersionManager
 from app.utils.helpers import version_key, get_major_version, generate_manual_commands
 from app.utils.display import pad_string, print_separator, print_banner
 
+console = get_console()
+_results_lock = Lock()
+_executor: Optional[ThreadPoolExecutor] = None
+_active_futures: List[Future] = []
+
 
 class ImageExporter:
     """镜像导出器主类"""
     
-    def __init__(self, debug: bool = False):
+    def __init__(self, debug: bool = False, arch_list: Optional[List[str]] = None, export_images: bool = True):
         self.logger = setup_logger(debug)
-        self.docker_api = DockerHubAPI()
+        self.docker_api = ContainerRegistryAPI()
         self.docker_manager = DockerManager(self.logger)
         self.version_manager = VersionManager()
         self.today = datetime.now().strftime('%Y%m%d_%H%M')
         self.today_date = datetime.now().strftime('%Y%m%d')
         self.image_results: List[ImageResult] = []
+        self.arch_list = arch_list if arch_list else ['amd64', 'arm64']
+        self.export_images = export_images
         
         self.state_file = LOGS_DIR / f"task_state_{self.today}.json"
         self.task_state = TaskState(self.state_file)
+        
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        shutdown_event.clear()
+    
+    def _signal_handler(self, signum, frame):
+        """信号处理器"""
+        global _executor, _active_futures
+        
+        console.print(f"\n[yellow]{ICONS['WARNING']} 收到中断信号，正在停止...[/]")
+        
+        shutdown_event.set()
+        
+        for future in _active_futures:
+            future.cancel()
+        
+        if _executor:
+            _executor.shutdown(wait=False, cancel_futures=True)
+        
+        console.print(f"{ICONS['INFO']} 任务状态已保存，下次运行将续传")
+        console.print(f"{ICONS['CHECK']} 已停止")
+        os._exit(0)
     
     def get_latest_versions(self, components: Dict) -> Dict:
         """获取所有组件的最新版本"""
@@ -44,7 +79,7 @@ class ImageExporter:
         for name, component in components.items():
             print(f"{ICONS['ARROW']} 检查 {component['name']} 版本...")
             
-            image_path = component['image'].replace('docker.io/', '')
+            image_path = component['image']
             exclude_pattern = component.get('exclude_pattern')
             versions = self.docker_api.get_versions(
                 image_path, component['tag_pattern'], exclude_pattern,
@@ -190,12 +225,14 @@ class ImageExporter:
             
             mirrored_image = get_mirrored_image(image_name)
             for version in versions:
-                for arch in ['amd64', 'arm64']:
-                    output_dir = IMAGES_DIR / self.today_date / arch
-                    output_dir.mkdir(parents=True, exist_ok=True)
+                for arch in self.arch_list:
+                    image_path = None
+                    if self.export_images:
+                        output_dir = IMAGES_DIR / self.today_date / arch
+                        output_dir.mkdir(parents=True, exist_ok=True)
+                        image_filename = f"{os.path.basename(image_name)}_{version}_{arch}.tar.gz"
+                        image_path = output_dir / image_filename
                     
-                    image_filename = f"{os.path.basename(image_name)}_{version}_{arch}.tar.gz"
-                    image_path = output_dir / image_filename
                     task_id = f"{mirrored_image}:{version}:{arch}"
                     
                     tasks_to_process.append({
@@ -207,79 +244,136 @@ class ImageExporter:
                     })
         
         total_tasks = len(tasks_to_process)
-        print(f"{ICONS['INFO']} 共 {total_tasks} 个镜像任务")
+        console.print(f"{ICONS['INFO']} 共 {total_tasks} 个镜像任务")
         
         tasks_to_run = []
         skipped_count = 0
         for task in tasks_to_process:
-            if self.task_state.is_completed(task['task_id']):
-                if task['image_path'].exists() and task['image_path'].stat().st_size > config.min_file_size:
+            if self.export_images and task['image_path']:
+                if self.task_state.is_completed(task['task_id']):
+                    if task['image_path'].exists() and task['image_path'].stat().st_size > config.min_file_size:
+                        skipped_count += 1
+                        self.logger.info(f"跳过已完成: {task['task_id']}")
+                        continue
+            else:
+                if self.task_state.is_completed(task['task_id']):
                     skipped_count += 1
                     self.logger.info(f"跳过已完成: {task['task_id']}")
                     continue
             tasks_to_run.append(task)
         
         if skipped_count > 0:
-            print(f"{ICONS['CHECK']} 跳过已完成: {skipped_count} 个")
+            console.print(f"{ICONS['CHECK']} 跳过已完成: {skipped_count} 个")
         
         if not tasks_to_run:
-            print(f"{ICONS['SUCCESS']} 所有任务已完成")
+            console.print(f"{ICONS['SUCCESS']} 所有任务已完成")
             return
         
-        print(f"{ICONS['ARROW']} 需要处理: {len(tasks_to_run)} 个")
+        console.print(f"{ICONS['ARROW']} 需要处理: {len(tasks_to_run)} 个")
         
-        for retry_round in range(config.max_global_retries):
-            if not tasks_to_run:
-                break
-            
-            print(f"\n{COLORS['YELLOW']}{'─' * 60}{COLORS['RESET']}")
-            print(f"{COLORS['YELLOW']}第 {retry_round + 1}/{config.max_global_retries} 轮处理{COLORS['RESET']}")
-            print(f"{COLORS['YELLOW']}{'─' * 60}{COLORS['RESET']}")
-            
-            with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
-                futures = {}
-                for task in tasks_to_run:
-                    future = executor.submit(
-                        self._process_single_image,
-                        task['full_image_name'], task['image_path'],
-                        task['arch'], task['task_id']
-                    )
-                    futures[future] = task
+        for handler in self.logger.handlers:
+            if isinstance(handler, QuietRichHandler):
+                handler.set_quiet(True)
+        
+        global _executor, _active_futures
+        _executor = None
+        _active_futures = []
+        
+        try:
+            for retry_round in range(config.max_global_retries):
+                if not tasks_to_run:
+                    break
+                
+                if shutdown_event.is_set():
+                    break
+                
+                console.print(f"\n[yellow]{'─' * 60}[/]")
+                console.print(f"[yellow]第 {retry_round + 1}/{config.max_global_retries} 轮处理[/]")
+                console.print(f"[yellow]{'─' * 60}[/]")
                 
                 failed_tasks = []
                 completed_count = 0
-                for future in futures:
-                    task = futures[future]
-                    try:
-                        result = future.result()
-                        if result.pull_success and result.export_success:
-                            self.task_state.mark_completed(task['task_id'])
-                            completed_count += 1
-                            print(f"{ICONS['CHECK']} [{completed_count}/{len(tasks_to_run)}] {task['task_id']}")
-                        else:
+                
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(bar_width=40),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    console=console,
+                    refresh_per_second=4,
+                ) as progress:
+                    overall_task = progress.add_task(
+                        f"[cyan]处理镜像",
+                        total=len(tasks_to_run)
+                    )
+                    
+                    _executor = ThreadPoolExecutor(max_workers=config.max_workers)
+                    futures = {}
+                    
+                    for task in tasks_to_run:
+                        if shutdown_event.is_set():
+                            break
+                        future = _executor.submit(
+                            self._process_single_image,
+                            task['full_image_name'], task['image_path'],
+                            task['arch'], task['task_id']
+                        )
+                        futures[future] = task
+                        _active_futures.append(future)
+                    
+                    for future in as_completed(futures):
+                        if shutdown_event.is_set():
+                            break
+                        
+                        task = futures[future]
+                        _active_futures.remove(future)
+                        
+                        try:
+                            result = future.result()
+                            if result.pull_success and (not self.export_images or result.export_success):
+                                self.task_state.mark_completed(task['task_id'])
+                                completed_count += 1
+                                progress.update(overall_task, advance=1)
+                                short_name = os.path.basename(task['full_image_name'].split(':')[0])
+                                progress.console.print(f"  {ICONS['CHECK']} [green]{short_name}:{task['arch']}[/]")
+                            else:
+                                failed_tasks.append(task)
+                                retry_count = self.task_state.get_retry_count(task['task_id'])
+                                self.task_state.mark_failed(task['task_id'], result.error_message, retry_count + 1)
+                        except Exception as e:
                             failed_tasks.append(task)
                             retry_count = self.task_state.get_retry_count(task['task_id'])
-                            self.task_state.mark_failed(task['task_id'], result.error_message, retry_count + 1)
-                    except Exception as e:
-                        failed_tasks.append(task)
-                        retry_count = self.task_state.get_retry_count(task['task_id'])
-                        self.task_state.mark_failed(task['task_id'], str(e), retry_count + 1)
-                        self.logger.error(f"{ICONS['CROSS']} 处理出错: {task['task_id']}")
-            
-            if not failed_tasks:
-                break
-            
-            tasks_to_run = failed_tasks
-            if retry_round < config.max_global_retries - 1:
-                wait_time = config.retry_delay * (config.retry_backoff_factor ** retry_round)
-                print(f"\n{ICONS['WARNING']} {len(failed_tasks)} 个失败，{wait_time}s 后重试...")
-                time.sleep(wait_time)
+                            self.task_state.mark_failed(task['task_id'], str(e), retry_count + 1)
+                            self.logger.error(f"{ICONS['CROSS']} 处理出错: {task['task_id']}")
+                    
+                    if _executor:
+                        _executor.shutdown(wait=False)
+                        _executor = None
+                
+                if shutdown_event.is_set():
+                    break
+                
+                if not failed_tasks:
+                    break
+                
+                tasks_to_run = failed_tasks
+                if retry_round < config.max_global_retries - 1:
+                    wait_time = config.retry_delay * (config.retry_backoff_factor ** retry_round)
+                    console.print(f"\n{ICONS['WARNING']} {len(failed_tasks)} 个失败，{wait_time}s 后重试...")
+                    time.sleep(wait_time)
+        finally:
+            for handler in self.logger.handlers:
+                if isinstance(handler, QuietRichHandler):
+                    handler.set_quiet(False)
         
-        expected_images = {task['task_id'] for task in tasks_to_process}
-        self._validate_images(expected_images)
+        if self.export_images:
+            expected_images = {task['task_id'] for task in tasks_to_process}
+            self._validate_images(expected_images)
         self._generate_summary_report()
         
-        print(f"\n{ICONS['CHECK']} 镜像保存至: {IMAGES_DIR / self.today_date}")
+        if self.export_images:
+            console.print(f"\n{ICONS['CHECK']} 镜像保存至: {IMAGES_DIR / self.today_date}")
     
     def _process_single_image(self, full_image_name: str, image_path: Path, 
                                arch: str, task_id: Optional[str] = None):
@@ -294,17 +388,21 @@ class ImageExporter:
         try:
             if self.docker_manager.pull_image(full_image_name, arch):
                 result.pull_success = True
-                if self.docker_manager.export_image(full_image_name, image_path, arch):
-                    result.export_success = True
+                if self.export_images:
+                    if self.docker_manager.export_image(full_image_name, image_path, arch):
+                        result.export_success = True
+                    else:
+                        result.error_message = "导出失败"
                 else:
-                    result.error_message = "导出失败"
+                    result.export_success = True
             else:
                 result.error_message = "拉取失败"
         except Exception as e:
             result.error_message = str(e)
             self.logger.error(f"[{arch}] {ICONS['CROSS']} 处理失败: {full_image_name}")
         
-        self.image_results.append(result)
+        with _results_lock:
+            self.image_results.append(result)
         return result
     
     def _validate_images(self, expected_images: Set[str]):
@@ -320,7 +418,7 @@ class ImageExporter:
         actual_files = set()
         invalid_files = []
         
-        for arch in ['amd64', 'arm64']:
+        for arch in self.arch_list:
             arch_dir = IMAGES_DIR / self.today_date / arch
             if not arch_dir.exists():
                 continue
@@ -460,6 +558,8 @@ class ImageExporter:
                 print(f"  {ICONS['COMPONENT']} {component['name']} ({mirrored})")
             
             print(f"\n{COLORS['CYAN']}配置:{COLORS['RESET']}")
+            print(f"  {ICONS['INFO']} 架构: {', '.join(self.arch_list)}")
+            print(f"  {ICONS['INFO']} 导出离线镜像: {'是' if self.export_images else '否'}")
             print(f"  {ICONS['INFO']} 并发数: {config.max_workers}")
             print(f"  {ICONS['INFO']} 全局重试: {config.max_global_retries}")
             print(f"  {ICONS['INFO']} 单任务重试: {config.max_retries}")
@@ -483,7 +583,8 @@ class ImageExporter:
                     versions = component['latest_version']
                     versions_str = ', '.join(versions) if isinstance(versions, list) else versions
                     print(f"  {ICONS['COMPONENT']} {component['name']} ({versions_str})")
-                print(f"{ICONS['CHECK']} 保存至: data/images/{self.today_date}/")
+                if self.export_images:
+                    print(f"{ICONS['CHECK']} 保存至: data/images/{self.today_date}/")
             else:
                 print(f"{ICONS['INFO']} 无需处理")
                 return 0
