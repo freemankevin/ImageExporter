@@ -73,3 +73,11 @@ class TaskState:
         self.failed_tasks.clear()
         if self.state_file.exists():
             self.state_file.unlink()
+    
+    def get_failed_tasks(self) -> Dict[str, Dict]:
+        """获取所有失败的任务"""
+        return self.failed_tasks.copy()
+    
+    def get_failed_count(self) -> int:
+        """获取失败任务数量"""
+        return len(self.failed_tasks)

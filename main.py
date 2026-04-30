@@ -92,6 +92,7 @@ def main():
     
     parser.add_argument('-D', '--debug', action='store_true', help='启用调试模式')
     parser.add_argument('--reset', action='store_true', help='重置今天的版本记录，重新执行')
+    parser.add_argument('--retry-failed', action='store_true', help='跳过版本检查，只重试之前失败的镜像')
     parser.add_argument('--clean', action='store_true', help='清理Python缓存')
     parser.add_argument('--clean-data', action='store_true', help='清理数据和日志目录')
     parser.add_argument('--clean-all', action='store_true', help='清理所有临时文件')
@@ -116,6 +117,10 @@ def main():
             arch_list = None if args.arch == 'all' else [args.arch]
             exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export)
             return exporter.run()
+        elif args.retry_failed:
+            arch_list = None if args.arch == 'all' else [args.arch]
+            exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export)
+            return exporter.retry_failed()
         else:
             arch_list = None if args.arch == 'all' else [args.arch]
             exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export)

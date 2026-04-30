@@ -32,6 +32,7 @@ console = get_console()
 _results_lock = Lock()
 _executor: Optional[ThreadPoolExecutor] = None
 _active_futures: List[Future] = []
+_active_tasks_map: Dict[Future, Dict] = {}
 
 
 class ImageExporter:
@@ -59,11 +60,22 @@ class ImageExporter:
     
     def _signal_handler(self, signum, frame):
         """信号处理器"""
-        global _executor, _active_futures
+        global _executor, _active_futures, _active_tasks_map
         
         console.print(f"\n[yellow]{ICONS['WARNING']} 收到中断信号，正在停止...[/]")
         
         shutdown_event.set()
+        
+        # 将正在进行的任务标记为失败
+        for future in _active_futures:
+            if not future.done() and future in _active_tasks_map:
+                task = _active_tasks_map[future]
+                self.task_state.mark_failed(
+                    task['task_id'], 
+                    "用户中断", 
+                    self.task_state.get_retry_count(task['task_id']) + 1
+                )
+                console.print(f"  {ICONS['CROSS']} 中断: {task['task_id']}")
         
         for future in _active_futures:
             future.cancel()
@@ -353,6 +365,8 @@ class ImageExporter:
                     
                     _executor = ThreadPoolExecutor(max_workers=config.max_workers)
                     futures = {}
+                    global _active_tasks_map
+                    _active_tasks_map.clear()
                     
                     for task in tasks_to_run:
                         if shutdown_event.is_set():
@@ -366,6 +380,7 @@ class ImageExporter:
                         )
                         futures[future] = task
                         _active_futures.append(future)
+                        _active_tasks_map[future] = task
                     
                     for future in as_completed(futures):
                         if shutdown_event.is_set():
@@ -373,6 +388,7 @@ class ImageExporter:
                         
                         task = futures[future]
                         _active_futures.remove(future)
+                        _active_tasks_map.pop(future, None)
                         
                         try:
                             result = future.result()
@@ -462,6 +478,127 @@ class ImageExporter:
                 with self._sha256_lock:
                     self.sha256_records[full_image_name] = result.sha256
         return result
+    
+    def _retry_images(self, tasks_to_retry: List[Dict]):
+        """重试失败的镜像（简化版 process_images）"""
+        print_separator("重试失败的镜像")
+        
+        console.print(f"{ICONS['INFO']} 共 {len(tasks_to_retry)} 个镜像需要重试")
+        
+        for handler in self.logger.handlers:
+            if isinstance(handler, QuietRichHandler):
+                handler.set_quiet(True)
+        
+        global _executor, _active_futures, _active_tasks_map
+        _executor = None
+        _active_futures = []
+        _active_tasks_map.clear()
+        
+        try:
+            for retry_round in range(config.max_global_retries):
+                if not tasks_to_retry:
+                    break
+                
+                if shutdown_event.is_set():
+                    break
+                
+                console.print(f"\n[yellow]{'─' * 60}[/]")
+                console.print(f"[yellow]第 {retry_round + 1}/{config.max_global_retries} 轮重试[/]")
+                console.print(f"[yellow]{'─' * 60}[/]")
+                
+                failed_tasks = []
+                completed_count = 0
+                
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(bar_width=40),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    console=console,
+                    refresh_per_second=4,
+                ) as progress:
+                    overall_task = progress.add_task(
+                        f"[cyan]重试镜像",
+                        total=len(tasks_to_retry)
+                    )
+                    
+                    _executor = ThreadPoolExecutor(max_workers=config.max_workers)
+                    futures = {}
+                    _active_tasks_map.clear()
+                    
+                    for task in tasks_to_retry:
+                        if shutdown_event.is_set():
+                            break
+                        short_name = task['component_name']
+                        progress.console.print(f"  {ICONS['ARROW']} 开始重试: [cyan]{short_name}:{task['arch']}[/]")
+                        future = _executor.submit(
+                            self._process_single_image,
+                            task['full_image_name'], task['image_path'],
+                            task['arch'], task['task_id']
+                        )
+                        futures[future] = task
+                        _active_futures.append(future)
+                        _active_tasks_map[future] = task
+                    
+                    for future in as_completed(futures):
+                        if shutdown_event.is_set():
+                            break
+                        
+                        task = futures[future]
+                        _active_futures.remove(future)
+                        _active_tasks_map.pop(future, None)
+                        
+                        try:
+                            result = future.result()
+                            short_name = task['component_name']
+                            progress.update(overall_task, advance=1)
+                            if result.pull_success and (not self.export_images or result.export_success):
+                                self.task_state.mark_completed(task['task_id'])
+                                completed_count += 1
+                                progress.console.print(f"  {ICONS['CHECK']} [green]{short_name}:{task['arch']}[/]")
+                            else:
+                                failed_tasks.append(task)
+                                retry_count = self.task_state.get_retry_count(task['task_id'])
+                                self.task_state.mark_failed(task['task_id'], result.error_message, retry_count + 1)
+                                progress.console.print(f"  {ICONS['CROSS']} [red]{short_name}:{task['arch']}[/] - {result.error_message}")
+                        except Exception as e:
+                            progress.update(overall_task, advance=1)
+                            failed_tasks.append(task)
+                            retry_count = self.task_state.get_retry_count(task['task_id'])
+                            self.task_state.mark_failed(task['task_id'], str(e), retry_count + 1)
+                            short_name = task['component_name']
+                            progress.console.print(f"  {ICONS['CROSS']} [red]{short_name}:{task['arch']}[/] - {str(e)}")
+                    
+                    if _executor:
+                        _executor.shutdown(wait=False)
+                        _executor = None
+                
+                if shutdown_event.is_set():
+                    break
+                
+                if not failed_tasks:
+                    console.print(f"\n{ICONS['SUCCESS']} 所有重试任务成功！")
+                    break
+                
+                tasks_to_retry = failed_tasks
+                if retry_round < config.max_global_retries - 1:
+                    wait_time = config.retry_delay * (config.retry_backoff_factor ** retry_round)
+                    console.print(f"\n{ICONS['WARNING']} {len(failed_tasks)} 个失败，{wait_time}s 后重试...")
+                    time.sleep(wait_time)
+        finally:
+            for handler in self.logger.handlers:
+                if isinstance(handler, QuietRichHandler):
+                    handler.set_quiet(False)
+        
+        # 生成重试报告
+        failed_count = len(self.task_state.get_failed_tasks())
+        if failed_count == 0:
+            console.print(f"\n{ICONS['SUCCESS']} 所有失败的镜像已重试成功！")
+            self.task_state.clear_state()
+        else:
+            console.print(f"\n{ICONS['CROSS']} 仍有 {failed_count} 个镜像失败")
+            console.print(f"{ICONS['INFO']} 可再次运行: python main.py --retry-failed")
     
     def _validate_images(self, expected_images: Set[str]):
         """验证镜像文件"""
@@ -682,6 +819,67 @@ class ImageExporter:
                 print(f"\n{ICONS['CROSS']} {failed_count} 个镜像失败")
                 print(f"{ICONS['INFO']} 请检查日志和手动命令脚本")
                 return 1
+            
+        except KeyboardInterrupt:
+            print(f"\n{ICONS['CROSS']} 用户中断")
+            print(f"{ICONS['INFO']} 任务状态已保存，下次运行将续传")
+            return 1
+        except Exception as e:
+            self.logger.error(f"{ICONS['CROSS']} 执行出错: {str(e)}")
+            return 1
+    
+    def retry_failed(self) -> int:
+        """只重试之前失败的镜像"""
+        try:
+            print_banner()
+            
+            failed_tasks = self.task_state.get_failed_tasks()
+            if not failed_tasks:
+                console.print(f"{ICONS['SUCCESS']} 没有失败的镜像需要重试")
+                return 0
+            
+            console.print(f"{ICONS['INFO']} 发现 {len(failed_tasks)} 个失败的镜像")
+            
+            # 构建任务列表
+            tasks_to_retry = []
+            for task_id, info in failed_tasks.items():
+                # 解析 task_id: "image:version:arch"
+                parts = task_id.rsplit(':', 2)
+                if len(parts) != 3:
+                    continue
+                image, version, arch = parts
+                full_image_name = f"{image}:{version}"
+                
+                # 检查架构是否匹配
+                if arch not in self.arch_list:
+                    continue
+                
+                output_dir = IMAGES_DIR / self.today_date / arch
+                output_dir.mkdir(parents=True, exist_ok=True)
+                image_filename = f"{os.path.basename(image)}_{version}_{arch}.tar.gz"
+                image_path = output_dir / image_filename
+                
+                tasks_to_retry.append({
+                    'task_id': task_id,
+                    'full_image_name': full_image_name,
+                    'image_path': image_path,
+                    'arch': arch,
+                    'component_name': os.path.basename(image),
+                    'error': info.get('error', '未知错误')
+                })
+            
+            if not tasks_to_retry:
+                console.print(f"{ICONS['WARNING']} 没有符合架构要求的失败镜像")
+                return 0
+            
+            console.print(f"{ICONS['ARROW']} 将重试 {len(tasks_to_retry)} 个镜像")
+            for task in tasks_to_retry:
+                console.print(f"  {ICONS['CROSS']} {task['component_name']}:{task['arch']} - {task['error'][:50]}...")
+            
+            # 直接处理这些镜像
+            self._retry_images(tasks_to_retry)
+            
+            return 0
             
         except KeyboardInterrupt:
             print(f"\n{ICONS['CROSS']} 用户中断")
