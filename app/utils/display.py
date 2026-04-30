@@ -22,10 +22,11 @@ def pad_string(s: str, width: int) -> str:
 def print_banner():
     """打印程序横幅"""
     banner = f"""
-{COLORS['CYAN']}╔════════════════════════════════════════════════════════════════╗
-║{COLORS['GREEN']}              DOCKER IMAGE EXPORTER v2.0                      {COLORS['CYAN']}║
-║{COLORS['YELLOW']}              Support AMD64 & ARM64 Architecture              {COLORS['CYAN']}║
-╚════════════════════════════════════════════════════════════════╝{COLORS['RESET']}
+{COLORS['BLUE']}{'─' * 60}{COLORS['RESET']}
+{COLORS['GREEN']}    CONTAINER IMAGE EXPORTER v2.0{COLORS['RESET']}
+{COLORS['YELLOW']}    Support AMD64 & ARM64 Architecture{COLORS['RESET']}
+{COLORS['YELLOW']}    (Docker / Podman){COLORS['RESET']}
+{COLORS['BLUE']}{'─' * 60}{COLORS['RESET']}
 """
     print(banner)
 

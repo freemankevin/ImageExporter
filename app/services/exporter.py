@@ -47,6 +47,8 @@ class ImageExporter:
         self.image_results: List[ImageResult] = []
         self.arch_list = arch_list if arch_list else ['amd64', 'arm64']
         self.export_images = export_images
+        self.sha256_records: Dict[str, str] = {}
+        self._sha256_lock = Lock()
         
         self.state_file = LOGS_DIR / f"task_state_{self.today}.json"
         self.task_state = TaskState(self.state_file)
@@ -98,6 +100,22 @@ class ImageExporter:
         
         return components
     
+    def _check_image_file_exists(self, component: Dict, version: str, arch: str) -> bool:
+        """检查镜像文件是否存在"""
+        if not self.export_images:
+            return True
+        
+        image_name = os.path.basename(component['image'])
+        image_filename = f"{image_name}_{version}_{arch}.tar.gz"
+        
+        for check_arch in self.arch_list:
+            image_dir = IMAGES_DIR / self.today_date / check_arch
+            if image_dir.exists():
+                image_path = image_dir / image_filename.replace(f"_{arch}", f"_{check_arch}")
+                if image_path.exists() and image_path.stat().st_size > config.min_file_size:
+                    return True
+        return False
+    
     def check_updates(self, components: Dict) -> Dict:
         """检查需要更新的组件"""
         print_separator("版本比较")
@@ -124,15 +142,15 @@ class ImageExporter:
             old_versions = self.version_manager.load_history_versions(history_file)
         
         updates_needed = {}
-        col_widths = {'component': 18, 'old_version': 40, 'new_version': 40, 'status': 10}
+        col_widths = {'component': 22, 'old_version': 30, 'old_sha256': 16, 'status': 12}
         
         header = (
             f"{pad_string('组件', col_widths['component'])}│ "
             f"{pad_string('历史版本', col_widths['old_version'])}│ "
-            f"{pad_string('最新版本', col_widths['new_version'])}│ "
+            f"{pad_string('历史SHA256', col_widths['old_sha256'])}│ "
             f"{pad_string('状态', col_widths['status'])}"
         )
-        total_width = sum(col_widths.values()) + 11
+        total_width = sum(col_widths.values()) + 9
         print(f"\n{COLORS['CYAN']}{header}{COLORS['RESET']}")
         print(f"{COLORS['CYAN']}{'─' * total_width}{COLORS['RESET']}")
         
@@ -153,21 +171,35 @@ class ImageExporter:
                     version_groups[major].append(version)
                 
                 selected_versions = []
-                for major, group in version_groups.items():
+                first_row = True
+                for major, group in sorted(version_groups.items()):
                     group.sort(key=version_key)
                     latest_in_group = group[-1]
-                    old_version = old_version_map.get(major, "无")
+                    old_info = old_version_map.get(major, {})
                     
-                    if not old_version or old_version == "无" or latest_in_group != old_version:
+                    if isinstance(old_info, dict):
+                        old_version = old_info.get('version', '无')
+                        old_sha256 = old_info.get('sha256', '')[:12] if old_info.get('sha256') else ''
+                    else:
+                        old_version = old_info if old_info else '无'
+                        old_sha256 = ''
+                    
+                    version_match = old_version and old_version != "无" and latest_in_group == old_version
+                    files_exist = self._check_image_file_exists(component, latest_in_group, self.arch_list[0])
+                    
+                    if not version_match or (self.export_images and not files_exist):
                         status = f"{COLORS['YELLOW']}需要更新{COLORS['RESET']}"
                         selected_versions.append(latest_in_group)
                     else:
                         status = f"{COLORS['GREEN']}无需更新{COLORS['RESET']}"
                     
+                    display_name = component['name'] if first_row else ''
+                    first_row = False
+                    
                     row = (
-                        f"{pad_string(component['name'], col_widths['component'])}│ "
-                        f"{pad_string(old_version, col_widths['old_version'])}│ "
-                        f"{pad_string(latest_in_group, col_widths['new_version'])}│ "
+                        f"{pad_string(display_name, col_widths['component'])}│ "
+                        f"{pad_string(f'{major}: {old_version}', col_widths['old_version'])}│ "
+                        f"{pad_string(old_sha256, col_widths['old_sha256'])}│ "
                         f"{status}"
                     )
                     print(row)
@@ -177,10 +209,20 @@ class ImageExporter:
                     updates_needed[name] = component
             else:
                 latest_version = versions[0]
-                old_version = list(old_version_map.values())[0] if old_version_map else "无"
+                old_info = list(old_version_map.values())[0] if old_version_map else {}
+                
+                if isinstance(old_info, dict):
+                    old_version = old_info.get('version', '无')
+                    old_sha256 = old_info.get('sha256', '')[:12] if old_info.get('sha256') else ''
+                else:
+                    old_version = old_info if old_info else '无'
+                    old_sha256 = ''
                 
                 if latest_version != "获取失败":
-                    if not old_version or old_version == "无" or latest_version != old_version:
+                    version_match = old_version and old_version != "无" and latest_version == old_version
+                    files_exist = self._check_image_file_exists(component, latest_version, self.arch_list[0])
+                    
+                    if not version_match or (self.export_images and not files_exist):
                         status = f"{COLORS['YELLOW']}需要更新{COLORS['RESET']}"
                         updates_needed[name] = component
                     else:
@@ -189,7 +231,7 @@ class ImageExporter:
                     row = (
                         f"{pad_string(component['name'], col_widths['component'])}│ "
                         f"{pad_string(old_version, col_widths['old_version'])}│ "
-                        f"{pad_string(latest_version, col_widths['new_version'])}│ "
+                        f"{pad_string(old_sha256, col_widths['old_sha256'])}│ "
                         f"{status}"
                     )
                     print(row)
@@ -315,6 +357,8 @@ class ImageExporter:
                     for task in tasks_to_run:
                         if shutdown_event.is_set():
                             break
+                        short_name = os.path.basename(task['full_image_name'].split(':')[0])
+                        progress.console.print(f"  {ICONS['ARROW']} 开始处理: [cyan]{short_name}:{task['arch']}[/]")
                         future = _executor.submit(
                             self._process_single_image,
                             task['full_image_name'], task['image_path'],
@@ -332,21 +376,24 @@ class ImageExporter:
                         
                         try:
                             result = future.result()
+                            short_name = os.path.basename(task['full_image_name'].split(':')[0])
+                            progress.update(overall_task, advance=1)
                             if result.pull_success and (not self.export_images or result.export_success):
                                 self.task_state.mark_completed(task['task_id'])
                                 completed_count += 1
-                                progress.update(overall_task, advance=1)
-                                short_name = os.path.basename(task['full_image_name'].split(':')[0])
                                 progress.console.print(f"  {ICONS['CHECK']} [green]{short_name}:{task['arch']}[/]")
                             else:
                                 failed_tasks.append(task)
                                 retry_count = self.task_state.get_retry_count(task['task_id'])
                                 self.task_state.mark_failed(task['task_id'], result.error_message, retry_count + 1)
+                                progress.console.print(f"  {ICONS['CROSS']} [red]{short_name}:{task['arch']}[/] - {result.error_message}")
                         except Exception as e:
+                            progress.update(overall_task, advance=1)
                             failed_tasks.append(task)
                             retry_count = self.task_state.get_retry_count(task['task_id'])
                             self.task_state.mark_failed(task['task_id'], str(e), retry_count + 1)
-                            self.logger.error(f"{ICONS['CROSS']} 处理出错: {task['task_id']}")
+                            short_name = os.path.basename(task['full_image_name'].split(':')[0])
+                            progress.console.print(f"  {ICONS['CROSS']} [red]{short_name}:{task['arch']}[/] - {str(e)}")
                     
                     if _executor:
                         _executor.shutdown(wait=False)
@@ -390,6 +437,7 @@ class ImageExporter:
             pull_result = self.docker_manager.pull_image(full_image_name, arch)
             if pull_result:
                 result.pull_success = True
+                result.sha256 = self.docker_manager.get_image_digest(full_image_name)
                 if self.export_images:
                     export_result = self.docker_manager.export_image(full_image_name, image_path, arch)
                     if export_result:
@@ -410,6 +458,9 @@ class ImageExporter:
         
         with _results_lock:
             self.image_results.append(result)
+            if result.sha256:
+                with self._sha256_lock:
+                    self.sha256_records[full_image_name] = result.sha256
         return result
     
     def _validate_images(self, expected_images: Set[str]):
@@ -574,6 +625,7 @@ class ImageExporter:
                 print(f"  {ICONS['COMPONENT']} {component['name']} ({mirrored})")
             
             print(f"\n{COLORS['CYAN']}配置:{COLORS['RESET']}")
+            print(f"  {ICONS['INFO']} 容器运行时: {self.docker_manager.runtime}")
             print(f"  {ICONS['INFO']} 架构: {', '.join(self.arch_list)}")
             print(f"  {ICONS['INFO']} 导出离线镜像: {'是' if self.export_images else '否'}")
             print(f"  {ICONS['INFO']} 并发数: {config.max_workers}")
@@ -583,6 +635,22 @@ class ImageExporter:
             components = self.get_latest_versions(components)
             updates_needed = self.check_updates(components)
             self.process_images(updates_needed)
+            
+            if self.sha256_records and updates_needed:
+                for name, component in updates_needed.items():
+                    versions = component.get('latest_version', [])
+                    if not isinstance(versions, list):
+                        versions = [versions]
+                    for version in versions:
+                        key = f"{component['image']}:{version}"
+                        if key not in self.sha256_records:
+                            mirrored = get_mirrored_image(component['image'])
+                            mirrored_key = f"{mirrored}:{version}"
+                            if mirrored_key in self.sha256_records:
+                                self.sha256_records[key] = self.sha256_records[mirrored_key]
+                
+                sha256_file = self.version_manager.save_latest_versions(config.components, self.sha256_records)
+                print(f"{ICONS['CHECK']} SHA256记录文件: {sha256_file.name}")
             
             all_success = all(r.pull_success and r.export_success for r in self.image_results)
             

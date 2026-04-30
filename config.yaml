@@ -9,7 +9,7 @@ docker:
 # 并发配置
 concurrency:
   max_workers: 10
-  max_global_retries: 100
+  max_global_retries: 10
   retry_backoff_factor: 2
 
 # 文件验证配置
@@ -74,8 +74,15 @@ components:
   
   postgresql-postgis:
     name: postgresql-postgis
-    image: freemankevin/freelabspace/postgresql-postgis
+    image: freemankevin/postgresql-postgis
     tag_pattern: "^[0-9]+\\.[0-9]+$"
     exclude_pattern: "^buildcache-.*|^12\\..*|^13\\..*"
     latest_version: null
     version_type: multiple
+  
+  postgresql-backup:
+    name: postgresql-backup
+    image: freemankevin/postgresql-backup
+    tag_pattern: "^latest$"
+    latest_version: null
+    version_type: single

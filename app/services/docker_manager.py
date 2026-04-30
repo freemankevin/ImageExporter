@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Docker操作服务"""
+"""Docker操作服务 - 支持 Docker 和 Podman"""
 
 import gzip
 import json
@@ -8,8 +8,10 @@ import shutil
 import subprocess
 import logging
 import time
+import os
 from pathlib import Path
 from threading import Lock
+from typing import Optional
 
 import docker
 from docker.errors import DockerException, APIError, ImageNotFound
@@ -21,12 +23,33 @@ from app.core.shutdown import shutdown_event
 _console_lock = Lock()
 
 
+def detect_container_runtime() -> str:
+    """检测容器运行时，优先使用 Podman"""
+    for runtime in ['podman', 'docker']:
+        result = subprocess.run(
+            ['where' if os.name == 'nt' else 'which', runtime],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            return runtime
+    return 'docker'
+
+
 class DockerManager:
-    """Docker操作管理器"""
+    """Docker/Podman 操作管理器"""
+    
+    _runtime: str = None
     
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         self._client = None
+    
+    @property
+    def runtime(self) -> str:
+        if DockerManager._runtime is None:
+            DockerManager._runtime = detect_container_runtime()
+        return DockerManager._runtime
     
     @property
     def client(self):
@@ -34,7 +57,7 @@ class DockerManager:
             try:
                 self._client = docker.from_env()
             except DockerException as e:
-                self.logger.error(f"Docker 客户端初始化失败: {e}")
+                self.logger.error(f"容器客户端初始化失败: {e}")
                 raise
         return self._client
     
@@ -42,7 +65,7 @@ class DockerManager:
         """检查指定架构的镜像是否已存在"""
         try:
             result = subprocess.run(
-                ["docker", "inspect", full_image_name],
+                [self.runtime, "inspect", full_image_name],
                 capture_output=True,
                 text=True
             )
@@ -54,6 +77,32 @@ class DockerManager:
             return False
         except Exception:
             return False
+    
+    def get_image_digest(self, full_image_name: str) -> Optional[str]:
+        """获取镜像的 sha256 digest"""
+        try:
+            result = subprocess.run(
+                [self.runtime, "inspect", full_image_name],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                image_info = json.loads(result.stdout)
+                if image_info:
+                    repo_digests = image_info[0].get('RepoDigests', [])
+                    if repo_digests:
+                        for digest in repo_digests:
+                            if '@sha256:' in digest:
+                                return digest.split('@sha256:')[1]
+                    
+                    image_id = image_info[0].get('Id', '')
+                    if image_id and 'sha256:' in image_id:
+                        return image_id.replace('sha256:', '')
+            return None
+        except Exception as e:
+            self.logger.error(f"获取镜像 digest 失败: {full_image_name} - {e}")
+            return None
     
     def pull_image(self, full_image_name: str, arch: str) -> bool:
         """拉取指定架构的镜像"""
@@ -99,22 +148,24 @@ class DockerManager:
                 if shutdown_event.is_set():
                     return False
                 
+                error_msg = str(e)
                 if attempt == config.max_retries - 1:
-                    self.logger.error(f"[{arch}] 拉取失败: {full_image_name}")
+                    self.logger.error(f"[{arch}] 拉取失败: {full_image_name} - {error_msg}")
                     raise
                 else:
-                    self.logger.warning(f"[{arch}] 重试 {attempt + 2}...")
+                    self.logger.warning(f"[{arch}] 重试 {attempt + 2}, 等待 {config.retry_delay}s... (错误: {error_msg[:50]}...)")
                     time.sleep(config.retry_delay)
             
             except Exception as e:
                 if shutdown_event.is_set():
                     return False
                 
+                error_msg = str(e)
                 if attempt == config.max_retries - 1:
-                    self.logger.error(f"[{arch}] 拉取失败: {full_image_name} - {e}")
+                    self.logger.error(f"[{arch}] 拉取失败: {full_image_name} - {error_msg}")
                     raise
                 else:
-                    self.logger.warning(f"[{arch}] 重试 {attempt + 2}...")
+                    self.logger.warning(f"[{arch}] 重试 {attempt + 2}, 等待 {config.retry_delay}s... (错误: {error_msg[:50]}...)")
                     time.sleep(config.retry_delay)
         
         return False
@@ -139,47 +190,37 @@ class DockerManager:
                     self.logger.debug(f"[{arch}] 镜像已存在: {image_path.name}")
                     return True
                 
-                if arch == 'arm64':
-                    cmd = f"docker save {full_image_name} --platform=linux/{arch} | gzip > {image_path}"
-                    result = subprocess.run(
-                        cmd,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=config.timeout
-                    )
-                else:
-                    with subprocess.Popen(
-                        ["docker", "save", full_image_name],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    ) as proc:
-                        if proc.stdout is None:
-                            raise RuntimeError("Failed to create pipe")
-                        
-                        chunk_size = 1024 * 1024
-                        with gzip.open(image_path, 'wb') as f:
-                            while not shutdown_event.is_set():
-                                chunk = proc.stdout.read(chunk_size)
-                                if not chunk:
-                                    break
-                                f.write(chunk)
-                        
-                        if shutdown_event.is_set():
-                            proc.terminate()
-                            proc.wait()
-                            self.logger.info(f"[{arch}] 导出被中断")
-                            if image_path.exists():
-                                try:
-                                    image_path.unlink()
-                                except Exception:
-                                    pass
-                            return False
-                        
-                        if proc.wait() != 0:
-                            stderr = proc.stderr.read().decode('utf-8', errors='replace') if proc.stderr else ""
-                            raise subprocess.CalledProcessError(proc.returncode or 1, proc.args or "docker save", stderr)
-                        result = proc
+                with subprocess.Popen(
+                    [self.runtime, "save", full_image_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                ) as proc:
+                    if proc.stdout is None:
+                        raise RuntimeError("Failed to create pipe")
+                    
+                    chunk_size = 1024 * 1024
+                    with gzip.open(image_path, 'wb', compresslevel=9) as f:
+                        while not shutdown_event.is_set():
+                            chunk = proc.stdout.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                    
+                    if shutdown_event.is_set():
+                        proc.terminate()
+                        proc.wait()
+                        self.logger.info(f"[{arch}] 导出被中断")
+                        if image_path.exists():
+                            try:
+                                image_path.unlink()
+                            except Exception:
+                                pass
+                        return False
+                    
+                    if proc.wait() != 0:
+                        stderr = proc.stderr.read().decode('utf-8', errors='replace') if proc.stderr else ""
+                        raise subprocess.CalledProcessError(proc.returncode or 1, proc.args or f"{self.runtime} save", stderr)
+                    result = proc
                 
                 if shutdown_event.is_set():
                     return False
@@ -210,7 +251,7 @@ class DockerManager:
                     return False
                 
                 last_error = str(e)
-                self.logger.error(f"[{arch}] 导出失败: {full_image_name}")
+                self.logger.error(f"[{arch}] 导出失败: {full_image_name} - {last_error}")
                 if attempt < config.max_retries - 1:
                     wait_time = config.retry_delay * (config.retry_backoff_factor ** attempt)
                     self.logger.warning(f"[{arch}] 重试 {attempt + 2}, 等待 {wait_time}s...")

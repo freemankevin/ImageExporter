@@ -18,3 +18,4 @@ class ImageResult:
         self.export_success = False
         self.error_message = ""
         self.file_path: Optional[Path] = None
+        self.sha256: Optional[str] = None
