@@ -38,7 +38,7 @@ _active_tasks_map: Dict[Future, Dict] = {}
 class ImageExporter:
     """镜像导出器主类"""
     
-    def __init__(self, debug: bool = False, arch_list: Optional[List[str]] = None, export_images: bool = True):
+    def __init__(self, debug: bool = False, arch_list: Optional[List[str]] = None, export_images: bool = True, component_filter: Optional[List[str]] = None):
         self.logger = setup_logger(debug)
         self.docker_api = ContainerRegistryAPI()
         self.docker_manager = DockerManager(self.logger)
@@ -48,6 +48,7 @@ class ImageExporter:
         self.image_results: List[ImageResult] = []
         self.arch_list = arch_list if arch_list else ['amd64', 'arm64']
         self.export_images = export_images
+        self.component_filter = [c.lower() for c in component_filter] if component_filter else None
         self.sha256_records: Dict[str, str] = {}
         self._sha256_lock = Lock()
         
@@ -605,7 +606,10 @@ class ImageExporter:
         print_separator("镜像验证")
         
         component_map = {}
-        for component in config.components.values():
+        components = config.components.copy()
+        if self.component_filter:
+            components = {k: v for k, v in components.items() if k.lower() in self.component_filter}
+        for component in components.values():
             basename = os.path.basename(component['image'])
             mirrored_image = get_mirrored_image(component['image'])
             component_map[basename] = mirrored_image
@@ -755,6 +759,12 @@ class ImageExporter:
             start_time = datetime.now()
             
             components = config.components.copy()
+            
+            if self.component_filter:
+                components = {k: v for k, v in components.items() if k.lower() in self.component_filter}
+                if not components:
+                    print(f"{ICONS['CROSS']} 未匹配到任何组件，请检查 --only 参数")
+                    return 1
             
             print(f"{COLORS['YELLOW']}组件列表:{COLORS['RESET']}")
             for component in components.values():

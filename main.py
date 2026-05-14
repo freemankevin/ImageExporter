@@ -99,10 +99,15 @@ def main():
     parser.add_argument('--arch', choices=['amd64', 'arm64', 'all'], default='all',
                         help='指定架构: amd64, arm64 或 all (默认: all)')
     parser.add_argument('--no-export', action='store_true', help='仅拉取镜像，不导出离线镜像')
+    parser.add_argument('--only', nargs='+', metavar='COMPONENT',
+                        help='仅处理指定组件（可指定多个，如: --only nginx elasticsearch）')
     
     args = parser.parse_args()
     
     try:
+        arch_list = None if args.arch == 'all' else [args.arch]
+        component_filter = args.only if args.only else None
+        
         if args.clean_all:
             clean_all()
             return 0
@@ -114,16 +119,13 @@ def main():
             return 0
         elif args.reset:
             clean_today_records()
-            arch_list = None if args.arch == 'all' else [args.arch]
-            exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export)
+            exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export, component_filter=component_filter)
             return exporter.run()
         elif args.retry_failed:
-            arch_list = None if args.arch == 'all' else [args.arch]
-            exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export)
+            exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export, component_filter=component_filter)
             return exporter.retry_failed()
         else:
-            arch_list = None if args.arch == 'all' else [args.arch]
-            exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export)
+            exporter = ImageExporter(debug=args.debug, arch_list=arch_list, export_images=not args.no_export, component_filter=component_filter)
             return exporter.run()
     
     except KeyboardInterrupt:

@@ -120,42 +120,25 @@ class DockerManager:
             try:
                 self.logger.debug(f"[{arch}] 拉取镜像: {full_image_name}")
                 
-                pull_stream = self.client.api.pull(
-                    full_image_name,
-                    platform=f"linux/{arch}",
-                    stream=True,
-                    decode=True
+                result = subprocess.run(
+                    [self.runtime, "pull", "--platform", f"linux/{arch}", full_image_name],
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace'
                 )
                 
-                for event in pull_stream:
-                    if shutdown_event.is_set():
-                        self.logger.info(f"[{arch}] 拉取被中断")
-                        return False
-                    
-                    status = event.get('status', '')
-                    error = event.get('error', '')
-                    
-                    if error:
-                        raise APIError(error)
-                    
-                    if 'Pulling from' in status:
-                        self.logger.debug(f"[{arch}] {status}")
+                if shutdown_event.is_set():
+                    self.logger.info(f"[{arch}] 拉取被中断")
+                    return False
+                
+                if result.returncode != 0:
+                    error_msg = result.stderr.strip() if result.stderr else "未知错误"
+                    raise RuntimeError(error_msg)
                 
                 self.logger.debug(f"[{arch}] 拉取成功: {full_image_name}")
                 return True
                 
-            except (DockerException, APIError, ImageNotFound) as e:
-                if shutdown_event.is_set():
-                    return False
-                
-                error_msg = str(e)
-                if attempt == config.max_retries - 1:
-                    self.logger.error(f"[{arch}] 拉取失败: {full_image_name} - {error_msg}")
-                    raise
-                else:
-                    self.logger.warning(f"[{arch}] 重试 {attempt + 2}, 等待 {config.retry_delay}s... (错误: {error_msg[:50]}...)")
-                    time.sleep(config.retry_delay)
-            
             except Exception as e:
                 if shutdown_event.is_set():
                     return False
