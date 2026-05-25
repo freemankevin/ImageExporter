@@ -53,7 +53,7 @@ class ContainerRegistryAPI:
                      logger: logging.Logger) -> List[str]:
         """获取符合指定模式的所有版本或最新版本
         
-        repository 格式: freemankevin/library/nginx 或 freemankevin/minio/aistor/minio
+        repository 格式: freemankevin/library/nginx 或 freemankevin/aistor/minio
         使用 GitHub Packages API 查询 GHCR 镜像版本
         
         注意: GitHub Packages 中包名使用 __ 替代 /

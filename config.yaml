@@ -32,7 +32,7 @@ components:
   
   minio:
     name: minio
-    image: freemankevin/minio/aistor/minio
+    image: freemankevin/aistor/minio
     tag_pattern: "^RELEASE\\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$"
     latest_version: null
     version_type: single
